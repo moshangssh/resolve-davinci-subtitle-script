@@ -1,0 +1,1 @@
+# This file makes 'subvigator' a Python package.
