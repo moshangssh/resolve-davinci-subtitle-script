@@ -48,9 +48,6 @@ class SubvigatorWindow(QMainWindow):
         self.search_type_combo = QComboBox()
         self.search_type_combo.addItems(['Contains', 'Exact', 'Starts With', 'Ends With', 'Wildcard'])
 
-        self.dynamic_search_checkbox = QCheckBox("Dynamic search text")
-        self.drop_frame_checkbox = QCheckBox("DF navigation")
-
         self.tree = QTreeWidget()
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels(['#', 'Subtitle', 'StartFrame'])
@@ -59,9 +56,6 @@ class SubvigatorWindow(QMainWindow):
         self.tree.setColumnHidden(2, True)
 
         self.track_combo = QComboBox()
-        self.combine_subs_label = QLabel("Combine Subs:")
-        self.combine_subs_combo = QComboBox()
-        self.combine_subs_combo.addItems([str(i) for i in range(1, 11)])
         self.refresh_button = QPushButton("Refresh")
 
     def _setup_layouts(self):
@@ -71,18 +65,10 @@ class SubvigatorWindow(QMainWindow):
         search_layout.addWidget(self.search_type_combo)
         self.main_layout.addLayout(search_layout)
 
-        options_layout = QHBoxLayout()
-        options_layout.addWidget(self.dynamic_search_checkbox)
-        options_layout.addWidget(self.drop_frame_checkbox)
-        self.main_layout.addLayout(options_layout)
-
         self.main_layout.addWidget(self.tree)
 
         bottom_layout = QHBoxLayout()
         bottom_layout.addWidget(self.track_combo)
-        bottom_layout.addSpacing(10)
-        bottom_layout.addWidget(self.combine_subs_label)
-        bottom_layout.addWidget(self.combine_subs_combo)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.refresh_button)
         self.main_layout.addLayout(bottom_layout)

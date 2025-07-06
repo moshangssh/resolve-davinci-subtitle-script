@@ -111,3 +111,24 @@ pytest, pytest-cov
 - **决策:** 为 `search_text` (QLineEdit) 控件添加 `textChanged` 信号，并将其连接到 `filter_tree` 方法，以实现字幕列表的实时过滤功能。
 - **理由:** 这是 Qt/PySide 中实现动态UI更新的标准做法，能够提供流畅的用户体验。
 - **实施者:** 💻 代码开发者
+---
+- **决策时间:** 2025/7/6 下午6:13:35
+- **决策:** 从UI中移除了 "df navigation"、"Dynamic search text" 和 "combine subs" 功能及其相关的布局代码。
+- **理由:** 这些功能目前不是核心需求，移除它们可以简化UI，让界面更整洁。
+- **实施者:** 🧠 NexusCore
+
+---
+### 代码实现 [UI交互]
+[2025-07-06 18:37:00] - 为字幕轨道切换下拉框实现功能。
+
+**实现细节：**
+在 `ApplicationController` 中添加了 `on_track_changed` 方法，用于处理轨道切换事件。该方法从UI获取当前轨道索引，调用 `resolve_integration.get_subtitles` 获取新字幕，并更新UI表格。同时，将 `track_combo.currentIndexChanged` 信号连接到此新方法，并修改 `refresh_data` 以在初始加载时正确触发事件。
+
+**测试框架：**
+- PyTest
+- pytest-cov
+- unittest.mock
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%

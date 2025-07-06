@@ -23,6 +23,17 @@ class ApplicationController:
         self.window.refresh_button.clicked.connect(self.refresh_data)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.search_text.returnPressed.connect(self.filter_subtitles)
+        self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
+
+    def on_track_changed(self):
+        track_index = self.window.track_combo.currentIndex() + 1
+        if track_index == 0:
+            return
+            
+        subs = self.resolve_integration.get_subtitles(track_index)
+        subs_data = {i + 1: sub for i, sub in enumerate(subs)}
+        self.window.populate_table(subs_data)
+        self.filter_subtitles()
 
     def refresh_data(self):
         timeline_info = self.resolve_integration.get_current_timeline_info()
@@ -33,11 +44,9 @@ class ApplicationController:
         for i in range(1, timeline_info['track_count'] + 1):
             self.window.track_combo.addItem(f"ST {i}")
 
-        track_index = self.window.track_combo.currentIndex() + 1
-        subtitles = self.resolve_integration.get_subtitles(track_index)
-        
-        subs_data = {i + 1: sub for i, sub in enumerate(subtitles)}
-        self.window.populate_table(subs_data)
+        # Manually trigger the on_track_changed for the initial load
+        if self.window.track_combo.count() > 0:
+            self.on_track_changed()
 
     def on_item_clicked(self, item, column):
         start_frame_str = item.text(2)
