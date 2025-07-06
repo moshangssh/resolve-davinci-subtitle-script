@@ -168,3 +168,13 @@ pytest
 **原因:** 这是将后端轨道切换逻辑 (`set_active_subtitle_track`) 与前端 UI 事件连接起来的关键步骤，从而完成整个功能。
 **行动:** 委派了一个子任务给 `code-developer` 模式，在 `main.py` 中实现了信号连接和处理函数。
 **结果:** UI 轨道选择现在可以正确触发 DaVinci Resolve 中的轨道状态同步。
+
+---
+**决策时间:** 2025/7/7 上午12:46:19
+**决策:** 修复 DaVinci Resolve 环境中的 `ImportError` 和 `NameError`。
+**原因:** 用户报告在 DaVinci Resolve 中运行脚本时出现 `ImportError: attempted relative import with no known parent package` 错误。这是由于 Resolve 的脚本执行环境未将 `src` 目录识别为 Python 包。后续还发现，在某些嵌入式环境中，`__file__` 变量可能未定义，导致 `NameError`。
+**行动:** 委派了一个子任务给 `code-developer` 模式，在 `src/main.py` 中进行了以下修改：
+1.  动态地将项目根目录添加到 `sys.path`。
+2.  将所有相对导入更改为绝对导入。
+3.  使用 `sys.argv[0]` 作为 `os.path.abspath` 的参数，以兼容 `__file__` 未定义的执行环境。
+**结果:** 脚本的导入问题和潜在的 `NameError` 都已解决，增强了脚本在不同环境下的健壮性。

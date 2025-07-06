@@ -4,7 +4,7 @@ import os
 import platform
 
 # 导入被测试的类
-from timecode_utils import TimecodeUtils
+from src.timecode_utils import TimecodeUtils
 
 @pytest.fixture
 def mock_resolve():
@@ -28,7 +28,7 @@ class TestInitialization:
         self.mock_glob_module = MagicMock()
 
         monkeypatch.setattr('cffi.FFI', lambda: self.mock_ffi)
-        monkeypatch.setattr('timecode_utils.glob', self.mock_glob_module)
+        monkeypatch.setattr('src.timecode_utils.glob', self.mock_glob_module)
         self.monkeypatch = monkeypatch
 
     def test_init_success_windows(self, mock_resolve):
@@ -97,7 +97,7 @@ def utils_instance(monkeypatch, mock_resolve):
     mock_ffi = MagicMock()
     mock_ffi.dlopen.return_value = MagicMock()
     
-    monkeypatch.setattr('timecode_utils.glob', mock_glob_module)
+    monkeypatch.setattr('src.timecode_utils.glob', mock_glob_module)
     monkeypatch.setattr('cffi.FFI', lambda: mock_ffi)
     
     return TimecodeUtils(mock_resolve)

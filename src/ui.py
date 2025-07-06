@@ -29,7 +29,7 @@ class NumericTreeWidgetItem(QTreeWidgetItem):
 class SubvigatorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Andy's Subvigator (Python Port)")
+        self.setWindowTitle("xdd sub")
         self.setGeometry(100, 100, 380, 700)
 
         self.central_widget = QWidget()
@@ -49,11 +49,13 @@ class SubvigatorWindow(QMainWindow):
         self.search_type_combo.addItems(['Contains', 'Exact', 'Starts With', 'Ends With', 'Wildcard'])
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels(['#', 'Subtitle', 'StartFrame'])
-        self.tree.setColumnWidth(0, 58)
-        self.tree.setColumnWidth(1, 280)
-        self.tree.setColumnHidden(2, True)
+        self.tree.setColumnCount(5)
+        self.tree.setHeaderLabels(['#', 'Subtitle', 'In', 'Out', 'StartFrame'])
+        self.tree.setColumnWidth(0, 40)  # #
+        self.tree.setColumnWidth(1, 180) # Subtitle
+        self.tree.setColumnWidth(2, 80)  # In
+        self.tree.setColumnWidth(3, 80)  # Out
+        self.tree.setColumnHidden(4, True) # StartFrame
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
@@ -75,11 +77,13 @@ class SubvigatorWindow(QMainWindow):
 
     def populate_table(self, subs_data, hide=False):
         self.tree.clear()
-        for i, sub_obj in subs_data.items():
+        for sub in subs_data:
             item = NumericTreeWidgetItem(self.tree)
-            item.setText(0, str(i))
-            item.setText(1, sub_obj.GetName())
-            item.setText(2, str(sub_obj.GetStart()))
+            item.setText(0, str(sub['id']))
+            item.setText(1, sub['text'])
+            item.setText(2, sub['in_timecode'])
+            item.setText(3, sub['out_timecode'])
+            item.setText(4, str(sub['in_frame']))
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
@@ -91,7 +95,7 @@ class SubvigatorWindow(QMainWindow):
 
         for i in range(root.childCount()):
             item = root.child(i)
-            subtitle_text = item.text(1)
+            subtitle_text = item.text(1) # Subtitle text is now in column 1
             
             matches = False
             if not filter_text:

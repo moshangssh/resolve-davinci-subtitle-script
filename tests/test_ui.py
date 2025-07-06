@@ -2,7 +2,7 @@ import pytest
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
 from PySide6.QtCore import Qt
 from unittest.mock import Mock
-from ui import NumericTreeWidgetItem, SubvigatorWindow
+from src.ui import NumericTreeWidgetItem, SubvigatorWindow
 
 # Fixture to provide a QApplication instance
 @pytest.fixture(scope="session")

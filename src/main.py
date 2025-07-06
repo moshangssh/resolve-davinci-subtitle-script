@@ -2,9 +2,16 @@
 import sys
 from PySide6.QtWidgets import QApplication
 
-from resolve_integration import ResolveIntegration
-from timecode_utils import TimecodeUtils
-from ui import SubvigatorWindow
+import os
+# Add the parent directory of 'src' to the Python path
+# This allows for absolute imports of modules within 'src'
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from src.resolve_integration import ResolveIntegration
+from src.timecode_utils import TimecodeUtils
+from src.ui import SubvigatorWindow
 
 class ApplicationController:
     def __init__(self):
@@ -36,8 +43,7 @@ class ApplicationController:
         if track_index == 0:
             return
  
-        subs = self.resolve_integration.get_subtitles(track_index)
-        subs_data = {i + 1: sub for i, sub in enumerate(subs)}
+        subs_data = self.resolve_integration.get_subtitles_with_timecode(track_index)
         self.window.populate_table(subs_data)
         self.filter_subtitles()
 
@@ -55,7 +61,7 @@ class ApplicationController:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
     def on_item_clicked(self, item, column):
-        start_frame_str = item.text(2)
+        start_frame_str = item.text(4)
         if start_frame_str:
             start_frame = int(start_frame_str)
             timeline_info = self.resolve_integration.get_current_timeline_info()
@@ -74,7 +80,7 @@ class ApplicationController:
 
         for i in range(self.window.tree.topLevelItemCount()):
             item = self.window.tree.topLevelItem(i)
-            item.setHidden(search_text.lower() not in item.text(1).lower())
+            item.setHidden(search_text.lower() not in item.text(3).lower())
 
     def run(self):
         self.connect_signals()

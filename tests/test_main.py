@@ -4,10 +4,8 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 
-# Add both the project root and the src directory to the Python path
-# This allows tests to import from 'src.main' and for 'src.main' to import its siblings
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+# The pytest.ini configuration handles the python path.
+# No need to manually modify sys.path here.
 
 
 # We will now mock QApplication directly in fixtures where needed, instead of globally.

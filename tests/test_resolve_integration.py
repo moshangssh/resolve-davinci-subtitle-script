@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 import sys
 import os
 
-# Add the project root to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# The pytest.ini configuration handles the python path.
+# No need to manually modify sys.path here.
 
 from src.resolve_integration import ResolveIntegration
 
@@ -167,3 +167,89 @@ def test_get_subtitles_no_timeline(mock_get_resolve):
     subtitles = integration.get_subtitles()
 
     assert subtitles == []
+
+
+@pytest.fixture
+def mock_sub_obj():
+    """Fixture to create a mock subtitle object."""
+    sub_obj = MagicMock()
+    sub_obj.GetStart.return_value = 0
+    sub_obj.GetEnd.return_value = 24
+    sub_obj.GetName.return_value = "Test Subtitle"
+    return sub_obj
+
+@patch('src.resolve_integration.TimecodeUtils')
+@patch('src.resolve_integration.ResolveIntegration._get_resolve_instance')
+def test_get_subtitles_with_timecode_success(mock_get_resolve, mock_timecode_utils, mock_timeline, mock_sub_obj):
+    """Test getting subtitles with timecode successfully."""
+    mock_get_resolve.return_value = MagicMock()
+    
+    # Mock timeline settings
+    mock_timeline.GetSetting.side_effect = lambda key: 24.0 if key == 'timelineFrameRate' else '0'
+    mock_timeline.GetItemListInTrack.return_value = [mock_sub_obj]
+    
+    # Mock TimecodeUtils
+    mock_tc_instance = mock_timecode_utils.return_value
+    mock_tc_instance.timecode_from_frame.side_effect = ["00:00:00:00", "00:00:01:00"]
+    
+    integration = ResolveIntegration()
+    integration.timeline = mock_timeline
+    
+    subtitles = integration.get_subtitles_with_timecode()
+    
+    assert len(subtitles) == 1
+    sub = subtitles[0]
+    assert sub['id'] == 1
+    assert sub['text'] == "Test Subtitle"
+    assert sub['in_frame'] == 0
+    assert sub['out_frame'] == 24
+    assert sub['in_timecode'] == "00:00:00:00"
+    assert sub['out_timecode'] == "00:00:01:00"
+    
+    mock_timeline.GetSetting.assert_any_call('timelineFrameRate')
+    mock_timeline.GetSetting.assert_any_call('timelineDropFrame')
+    mock_timeline.GetItemListInTrack.assert_called_once_with('subtitle', 1)
+    mock_timecode_utils.assert_called_once_with(integration.resolve)
+    mock_tc_instance.timecode_from_frame.assert_any_call(0, 24.0, False)
+    mock_tc_instance.timecode_from_frame.assert_any_call(24, 24.0, False)
+
+@patch('src.resolve_integration.ResolveIntegration._get_resolve_instance')
+def test_get_subtitles_with_timecode_no_timeline(mock_get_resolve):
+    """Test getting subtitles with timecode when no timeline exists."""
+    mock_get_resolve.return_value = MagicMock()
+    integration = ResolveIntegration()
+    integration.timeline = None
+    
+    subtitles = integration.get_subtitles_with_timecode()
+    
+    assert subtitles == []
+
+@patch('src.resolve_integration.ResolveIntegration._get_resolve_instance')
+def test_get_subtitles_with_timecode_no_subtitles(mock_get_resolve, mock_timeline):
+    """Test getting subtitles with timecode when there are no subtitles."""
+    mock_get_resolve.return_value = MagicMock()
+    mock_timeline.GetItemListInTrack.return_value = []
+    
+    integration = ResolveIntegration()
+    integration.timeline = mock_timeline
+    
+    subtitles = integration.get_subtitles_with_timecode()
+    
+    assert subtitles == []
+    mock_timeline.GetItemListInTrack.assert_called_once_with('subtitle', 1)
+
+@patch('src.resolve_integration.TimecodeUtils', side_effect=Exception("TC Init Error"))
+@patch('src.resolve_integration.ResolveIntegration._get_resolve_instance')
+def test_get_subtitles_with_timecode_tc_utils_error(mock_get_resolve, mock_timecode_utils, mock_timeline, mock_sub_obj):
+    """Test handling of TimecodeUtils initialization error."""
+    mock_get_resolve.return_value = MagicMock()
+    mock_timeline.GetSetting.side_effect = lambda key: 24.0 if key == 'timelineFrameRate' else '0'
+    mock_timeline.GetItemListInTrack.return_value = [mock_sub_obj]
+    
+    integration = ResolveIntegration()
+    integration.timeline = mock_timeline
+    
+    subtitles = integration.get_subtitles_with_timecode()
+    
+    assert subtitles == []
+    mock_timecode_utils.assert_called_once()
