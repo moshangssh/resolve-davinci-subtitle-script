@@ -39,6 +39,7 @@ class SubvigatorWindow(QMainWindow):
 
         self._create_widgets()
         self._setup_layouts()
+        self.search_text.textChanged.connect(self.filter_tree)
 
     def _create_widgets(self):
         self.search_label = QLabel("Filter:")
@@ -96,3 +97,42 @@ class SubvigatorWindow(QMainWindow):
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
+
+    def filter_tree(self):
+        filter_text = self.search_text.text()
+        filter_type = self.search_type_combo.currentText()
+        root = self.tree.invisibleRootItem()
+
+        for i in range(root.childCount()):
+            item = root.child(i)
+            subtitle_text = item.text(1)
+            
+            matches = False
+            if not filter_text:
+                matches = True
+            elif filter_type == 'Contains':
+                matches = filter_text in subtitle_text
+            elif filter_type == 'Exact':
+                matches = filter_text == subtitle_text
+            elif filter_type == 'Starts With':
+                matches = subtitle_text.startswith(filter_text)
+            elif filter_type == 'Ends With':
+                matches = subtitle_text.endswith(filter_text)
+            elif filter_type == 'Wildcard':
+                # Basic wildcard support: * matches any sequence of characters
+                # More complex patterns could be handled with regex
+                parts = filter_text.split('*')
+                if len(parts) == 1:
+                    matches = filter_text in subtitle_text
+                else:
+                    try:
+                        import re
+                        # Escape special characters except for our wildcard '*'
+                        # which we replace with '.*'
+                        regex_pattern = '.*'.join(re.escape(part) for part in parts)
+                        matches = re.search(regex_pattern, subtitle_text) is not None
+                    except ImportError:
+                        # Fallback if re is not available (unlikely)
+                        matches = True # Or some other safe default
+
+            item.setHidden(not matches)
