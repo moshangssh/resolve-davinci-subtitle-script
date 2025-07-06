@@ -1,6 +1,5 @@
-import sys
+# ui.py
 from PySide6.QtWidgets import (
-    QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -13,6 +12,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QCheckBox,
 )
+from PySide6.QtCore import Qt
+
+class NumericTreeWidgetItem(QTreeWidgetItem):
+    def __lt__(self, other):
+        if not isinstance(other, QTreeWidgetItem):
+            return NotImplemented
+
+        try:
+            # First, try to compare numerically
+            return int(self.text(0)) < int(other.text(0))
+        except (ValueError, TypeError):
+            # If numerical comparison fails, fallback to string comparison
+            return self.text(0) < other.text(0)
 
 class SubvigatorWindow(QMainWindow):
     def __init__(self, parent=None):
@@ -29,25 +41,22 @@ class SubvigatorWindow(QMainWindow):
         self._setup_layouts()
 
     def _create_widgets(self):
-        # Search controls
         self.search_label = QLabel("Filter:")
         self.search_text = QLineEdit()
         self.search_text.setPlaceholderText("Search Text Filter")
         self.search_type_combo = QComboBox()
         self.search_type_combo.addItems(['Contains', 'Exact', 'Starts With', 'Ends With', 'Wildcard'])
 
-        # Options
         self.dynamic_search_checkbox = QCheckBox("Dynamic search text")
         self.drop_frame_checkbox = QCheckBox("DF navigation")
 
-        # Subtitle Tree
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels(['#', 'Subtitle'])
+        self.tree.setColumnCount(3)
+        self.tree.setHeaderLabels(['#', 'Subtitle', 'StartFrame'])
         self.tree.setColumnWidth(0, 58)
         self.tree.setColumnWidth(1, 280)
+        self.tree.setColumnHidden(2, True)
 
-        # Bottom controls
         self.track_combo = QComboBox()
         self.combine_subs_label = QLabel("Combine Subs:")
         self.combine_subs_combo = QComboBox()
@@ -55,23 +64,19 @@ class SubvigatorWindow(QMainWindow):
         self.refresh_button = QPushButton("Refresh")
 
     def _setup_layouts(self):
-        # Search layout
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_text)
         search_layout.addWidget(self.search_type_combo)
         self.main_layout.addLayout(search_layout)
 
-        # Options layout
         options_layout = QHBoxLayout()
         options_layout.addWidget(self.dynamic_search_checkbox)
         options_layout.addWidget(self.drop_frame_checkbox)
         self.main_layout.addLayout(options_layout)
 
-        # Tree widget
         self.main_layout.addWidget(self.tree)
 
-        # Bottom controls layout
         bottom_layout = QHBoxLayout()
         bottom_layout.addWidget(self.track_combo)
         bottom_layout.addSpacing(10)
@@ -83,16 +88,11 @@ class SubvigatorWindow(QMainWindow):
 
     def populate_table(self, subs_data, hide=False):
         self.tree.clear()
-        for i, sub_text in subs_data.items():
-            item = QTreeWidgetItem(self.tree)
+        for i, sub_obj in subs_data.items():
+            item = NumericTreeWidgetItem(self.tree)
             item.setText(0, str(i))
-            item.setText(1, sub_text)
+            item.setText(1, sub_obj.GetName())
+            item.setText(2, str(sub_obj.GetStart()))
             if hide:
                 item.setHidden(True)
-        self.tree.sortItems(0, 0) # AscendingOrder
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = SubvigatorWindow()
-    window.show()
-    sys.exit(app.exec())
+        self.tree.sortItems(0, Qt.AscendingOrder)

@@ -48,3 +48,62 @@ N/A
 **测试结果:**
 - 覆盖率：N/A
 - 通过率：N/A
+
+---
+### 代码实现 [核心功能]
+[2025-07-06 13:38:05] - 实现了 `TimecodeUtils` 类用于处理时间码转换。
+
+**实现细节：**
+创建了 `timecode_utils.py` 模块，封装了使用 `cffi` 与 `libavutil` 库交互的逻辑，提供了时间码与帧之间的转换功能。
+
+**测试框架：**
+`pytest`, `pytest-cov`
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%
+
+
+---
+### 代码实现 [ResolveIntegration]
+[2025-07-06 14:22:19] - 实现了 `ResolveIntegration` 类，用于封装与 DaVinci Resolve API 的交互。
+
+**实现细节：**
+创建了 `resolve_integration.py` 文件，包含 `ResolveIntegration` 类。该类在初始化时连接到 DaVinci Resolve，并提供了获取时间线信息和字幕数据的方法。
+
+**测试框架：**
+pytest, pytest-cov, unittest.mock
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%
+
+---
+### 代码实现 [UI]
+[2025-07-06 14:33:47] - 创建了 `ui.py` 文件，包含 `SubvigatorWindow` 和 `NumericTreeWidgetItem` 类，用于构建应用程序的图形用户界面。
+
+**实现细节：**
+- `SubvigatorWindow`: 主窗口类，负责UI布局和控件创建。
+- `NumericTreeWidgetItem`: 自定义树状组件项，支持按数字排序。
+
+**测试框架：**
+- PyTest
+- pytest-qt
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%
+
+---
+### 代码实现 [Application Entry Point]
+[2025-07-06 14:57:15] - 创建了应用程序的主入口点 `main.py`。
+
+**实现细节：**
+`main.py` 文件包含 `ApplicationController` 类和 `main` 函数。`ApplicationController` 负责初始化 QApplication、集成 Resolve、处理 UI 信号和管理应用程序的核心逻辑。`main` 函数作为程序的起点，实例化并运行控制器。
+
+**测试框架：**
+pytest, pytest-cov
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%

@@ -1,105 +1,125 @@
-import unittest
-from unittest.mock import MagicMock, patch, mock_open
-
-# Add the subvigator directory to the path to allow imports
+import pytest
+from unittest.mock import MagicMock, patch
 import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from subvigator.resolve_integration import ResolveIntegration
+# Add the current directory to the path to import the script
+sys.path.append('.')
+from resolve_integration import ResolveIntegration
 
-class TestResolveIntegration(unittest.TestCase):
+@pytest.fixture
+def mock_resolve_objects():
+    """Fixture for a fully mocked Resolve object hierarchy."""
+    mock_resolve_app = MagicMock(name="ResolveApp")
+    mock_project_manager = MagicMock(name="ProjectManager")
+    mock_project = MagicMock(name="Project")
+    mock_timeline = MagicMock(name="Timeline")
 
-    def setUp(self):
-        """Set up a mock for the Resolve API."""
-        self.mock_resolve = MagicMock()
-        self.mock_project_manager = MagicMock()
-        self.mock_project = MagicMock()
-        self.mock_timeline = MagicMock()
+    mock_resolve_app.GetProjectManager.return_value = mock_project_manager
+    mock_project_manager.GetCurrentProject.return_value = mock_project
+    mock_project.GetCurrentTimeline.return_value = mock_timeline
+    
+    return mock_resolve_app, mock_project_manager, mock_project, mock_timeline
 
-        self.mock_resolve.GetProjectManager.return_value = self.mock_project_manager
-        self.mock_project_manager.GetCurrentProject.return_value = self.mock_project
-        self.mock_project.GetCurrentTimeline.return_value = self.mock_timeline
-
-        # Mock the modules that provide the Resolve instance
-        self.mock_fusionscript = MagicMock()
-        self.mock_fusionscript.scriptapp.return_value = self.mock_resolve
-        self.mock_dvr_script = MagicMock()
-        self.mock_dvr_script.scriptapp.return_value = self.mock_resolve
-
-        # Patch the import system
-        self.patched_fusionscript = patch.dict('sys.modules', {'fusionscript': self.mock_fusionscript})
-        self.patched_dvr_script = patch.dict('sys.modules', {'DaVinciResolveScript': self.mock_dvr_script})
-
-    def test_initialization_success_with_fusionscript(self):
-        """Test successful initialization using fusionscript."""
-        with self.patched_fusionscript:
-            # Ensure DaVinciResolveScript is not found
-            with patch.dict('sys.modules', {'DaVinciResolveScript': None}):
-                integration = ResolveIntegration()
-                self.assertIsNotNone(integration.resolve)
-                self.assertEqual(integration.project_manager, self.mock_project_manager)
-                self.assertEqual(integration.project, self.mock_project)
-                self.assertEqual(integration.timeline, self.mock_timeline)
-                self.mock_fusionscript.scriptapp.assert_called_with("Resolve")
-
-    def test_initialization_success_with_dvr_script(self):
-        """Test successful initialization using DaVinciResolveScript as a fallback."""
-        # Make fusionscript import fail
-        with patch.dict('sys.modules', {'fusionscript': None}):
-            with self.patched_dvr_script:
-                integration = ResolveIntegration()
-                self.assertIsNotNone(integration.resolve)
-                self.mock_dvr_script.scriptapp.assert_called_with("Resolve")
-
-
-    def test_initialization_failure(self):
-        """Test initialization failure when no scripting module is found."""
-        with patch.dict('sys.modules', {'fusionscript': None, 'DaVinciResolveScript': None}):
-            with self.assertRaises(ImportError) as context:
-                ResolveIntegration()
-            self.assertEqual(str(context.exception), "Could not connect to DaVinci Resolve. Make sure the application is running.")
-
-    def test_get_current_timeline_info(self):
-        """Test getting timeline info when a timeline is present."""
-        self.mock_timeline.GetSetting.return_value = 24
-        self.mock_timeline.GetTrackCount.return_value = 2
+# --- Tests for __init__ ---
+def test_initialization_success(mock_resolve_objects):
+    """Test successful initialization of ResolveIntegration."""
+    mock_resolve_app, pm, proj, timeline = mock_resolve_objects
+    
+    with patch.object(ResolveIntegration, '_get_resolve_instance', return_value=mock_resolve_app) as mock_get_instance:
+        integration = ResolveIntegration()
         
-        with self.patched_fusionscript:
-            integration = ResolveIntegration()
-            info = integration.get_current_timeline_info()
-            self.assertEqual(info, {'frame_rate': 24, 'track_count': 2})
-            self.mock_timeline.GetSetting.assert_called_with('timelineFrameRate')
-            self.mock_timeline.GetTrackCount.assert_called_with('subtitle')
+        mock_get_instance.assert_called_once()
+        assert integration.resolve is mock_resolve_app
+        assert integration.project_manager is pm
+        assert integration.project is proj
+        assert integration.timeline is timeline
+        mock_resolve_app.GetProjectManager.assert_called_once()
+        pm.GetCurrentProject.assert_called_once()
+        proj.GetCurrentTimeline.assert_called_once()
 
-    def test_get_current_timeline_info_no_timeline(self):
-        """Test getting timeline info when there is no timeline."""
-        self.mock_project.GetCurrentTimeline.return_value = None
-        with self.patched_fusionscript:
-            integration = ResolveIntegration()
-            info = integration.get_current_timeline_info()
-            self.assertIsNone(info)
+def test_initialization_failure():
+    """Test initialization failure when connection to Resolve fails."""
+    with patch.object(ResolveIntegration, '_get_resolve_instance', return_value=None) as mock_get_instance:
+        with pytest.raises(ImportError, match="Could not connect to DaVinci Resolve"):
+            ResolveIntegration()
+        mock_get_instance.assert_called_once()
 
-    def test_get_subtitles(self):
-        """Test getting subtitles from a specific track."""
-        mock_subtitle_item = MagicMock()
-        mock_subtitle_item.GetName.return_value = "Test Subtitle"
-        self.mock_timeline.GetItemListInTrack.return_value = [mock_subtitle_item]
+# --- Tests for _get_resolve_instance ---
+def test_get_resolve_instance_with_fusionscript():
+    """Test _get_resolve_instance successfully imports fusionscript."""
+    mock_fusionscript = MagicMock()
+    with patch.dict('sys.modules', {'fusionscript': mock_fusionscript, 'DaVinciResolveScript': None}):
+        integration = object.__new__(ResolveIntegration)
+        instance = integration._get_resolve_instance()
+        
+        assert instance == mock_fusionscript.scriptapp.return_value
+        mock_fusionscript.scriptapp.assert_called_with("Resolve")
 
-        with self.patched_fusionscript:
-            integration = ResolveIntegration()
-            subtitles = integration.get_subtitles(track_number=1)
-            self.assertEqual(len(subtitles), 1)
-            self.assertEqual(subtitles[0].GetName(), "Test Subtitle")
-            self.mock_timeline.GetItemListInTrack.assert_called_with('subtitle', 1)
+def test_get_resolve_instance_with_davinciresolvescript():
+    """Test _get_resolve_instance falls back to DaVinciResolveScript."""
+    mock_dvr_script = MagicMock()
+    with patch.dict('sys.modules', {'fusionscript': None, 'DaVinciResolveScript': mock_dvr_script}):
+        integration = object.__new__(ResolveIntegration)
+        instance = integration._get_resolve_instance()
 
-    def test_get_subtitles_no_timeline(self):
-        """Test getting subtitles when there is no timeline."""
-        self.mock_project.GetCurrentTimeline.return_value = None
-        with self.patched_fusionscript:
-            integration = ResolveIntegration()
-            subtitles = integration.get_subtitles()
-            self.assertEqual(subtitles, [])
+        assert instance == mock_dvr_script.scriptapp.return_value
+        mock_dvr_script.scriptapp.assert_called_with("Resolve")
 
-if __name__ == '__main__':
-    unittest.main()
+def test_get_resolve_instance_failure():
+    """Test _get_resolve_instance returns None when both imports fail."""
+    with patch.dict('sys.modules', {'fusionscript': None, 'DaVinciResolveScript': None}):
+        integration = object.__new__(ResolveIntegration)
+        instance = integration._get_resolve_instance()
+        assert instance is None
+
+# --- Tests for other methods ---
+@patch('resolve_integration.ResolveIntegration.__init__', lambda x: None)
+def test_get_current_timeline_info_success(mock_resolve_objects):
+    """Test get_current_timeline_info returns correct data."""
+    _, _, _, mock_timeline = mock_resolve_objects
+    
+    integration = ResolveIntegration()
+    integration.timeline = mock_timeline
+    
+    mock_timeline.GetSetting.return_value = 24.0
+    mock_timeline.GetTrackCount.return_value = 2
+
+    info = integration.get_current_timeline_info()
+    
+    assert info == {'frame_rate': 24.0, 'track_count': 2}
+    mock_timeline.GetSetting.assert_called_once_with('timelineFrameRate')
+    mock_timeline.GetTrackCount.assert_called_once_with('subtitle')
+
+@patch('resolve_integration.ResolveIntegration.__init__', lambda x: None)
+def test_get_current_timeline_info_no_timeline():
+    """Test get_current_timeline_info returns None when there is no timeline."""
+    integration = ResolveIntegration()
+    integration.timeline = None
+    
+    info = integration.get_current_timeline_info()
+    assert info is None
+
+@patch('resolve_integration.ResolveIntegration.__init__', lambda x: None)
+def test_get_subtitles_success(mock_resolve_objects):
+    """Test get_subtitles returns a list of subtitles."""
+    _, _, _, mock_timeline = mock_resolve_objects
+    
+    integration = ResolveIntegration()
+    integration.timeline = mock_timeline
+    
+    expected_subtitles = ["Subtitle 1", "Subtitle 2"]
+    mock_timeline.GetItemListInTrack.return_value = expected_subtitles
+
+    subtitles = integration.get_subtitles(track_number=2)
+    
+    assert subtitles == expected_subtitles
+    mock_timeline.GetItemListInTrack.assert_called_once_with('subtitle', 2)
+
+@patch('resolve_integration.ResolveIntegration.__init__', lambda x: None)
+def test_get_subtitles_no_timeline():
+    """Test get_subtitles returns an empty list when there is no timeline."""
+    integration = ResolveIntegration()
+    integration.timeline = None
+    
+    subtitles = integration.get_subtitles()
+    assert subtitles == []
