@@ -178,3 +178,8 @@ pytest
 2.  将所有相对导入更改为绝对导入。
 3.  使用 `sys.argv[0]` 作为 `os.path.abspath` 的参数，以兼容 `__file__` 未定义的执行环境。
 **结果:** 脚本的导入问题和潜在的 `NameError` 都已解决，增强了脚本在不同环境下的健壮性。
+
+
+---
+### 决策
+[2025-07-07 01:43:18] - 为Subvigator项目创建了核心工作流程和组件交互的Mermaid流程图。该图可视化了从应用启动到用户具体操作（如刷新、选择轨道、过滤字幕和时间线导航）的完整数据流和控制流，明确了 `ApplicationController`, `SubvigatorWindow`, 和 `ResolveIntegration` 之间的职责与交互关系。
