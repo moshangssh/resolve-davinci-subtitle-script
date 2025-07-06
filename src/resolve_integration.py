@@ -33,3 +33,15 @@ class ResolveIntegration:
         if not self.timeline:
             return []
         return self.timeline.GetItemListInTrack('subtitle', track_number)
+    def set_active_subtitle_track(self, track_index: int):
+        if not self.timeline:
+            return False
+        
+        subtitle_track_count = self.timeline.GetTrackCount("subtitle")
+        if track_index < 1 or track_index > subtitle_track_count:
+            return False
+
+        for i in range(1, subtitle_track_count + 1):
+            self.timeline.SetTrackEnable("subtitle", i, i == track_index)
+        
+        return True

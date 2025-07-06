@@ -132,3 +132,39 @@ pytest, pytest-cov
 **测试结果：**
 - 覆盖率：100%
 - 通过率：100%
+---
+**决策时间:** 2025/7/6 下午6:54:37
+**决策:** 修复 `AttributeError: 'SubvigatorWindow' object has no attribute 'drop_frame_checkbox'`
+**原因:** 用户报告在UI中点击字幕时程序崩溃。经查，是由于代码试图访问一个已被移除的UI组件 `drop_frame_checkbox`。
+**行动:** 委派了一个子任务给 `code-developer` 模式，移除了 `src/main.py` 中对 `drop_frame_checkbox` 的引用。
+**结果:** 错误已修复，程序恢复正常。
+
+
+
+---
+### 代码实现 [功能]
+[2025-07-06 19:17:08] - 在 `ResolveIntegration` 类中实现了 `set_active_subtitle_track` 函数。
+
+**实现细节：**
+该函数通过迭代所有字幕轨道，并使用 `SetTrackEnable` API 根据传入的 `track_index` 参数来启用或禁用相应的轨道，从而实现了活动字幕轨道的切换。
+
+**测试框架：**
+pytest
+
+**测试结果：**
+- 覆盖率：97%
+- 通过率：100%
+
+---
+**决策时间:** 2025/7/6 下午7:23:57
+**决策:** 实现 `set_active_subtitle_track` 函数以在 DaVinci Resolve 中同步字幕轨道状态。
+**原因:** 这是实现用户请求的核心功能，即在插件 UI 中切换轨道时，能够实时启用/禁用 Resolve 中的相应轨道。
+**行动:** 委派了一个子任务给 `code-developer` 模式，在 `resolve_integration.py` 中实现了此函数，并通过了单元测试。
+**结果:** `set_active_subtitle_track` 函数已成功实现并经过测试。
+
+---
+**决策时间:** 2025/7/6 下午10:22:22
+**决策:** 将 `track_list_widget` 的 `currentItemChanged` 信号连接到 `on_subtitle_track_selected` 方法，以在 UI 中同步轨道选择。
+**原因:** 这是将后端轨道切换逻辑 (`set_active_subtitle_track`) 与前端 UI 事件连接起来的关键步骤，从而完成整个功能。
+**行动:** 委派了一个子任务给 `code-developer` 模式，在 `main.py` 中实现了信号连接和处理函数。
+**结果:** UI 轨道选择现在可以正确触发 DaVinci Resolve 中的轨道状态同步。

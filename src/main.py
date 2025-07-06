@@ -24,12 +24,18 @@ class ApplicationController:
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.search_text.returnPressed.connect(self.filter_subtitles)
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
-
-    def on_track_changed(self):
-        track_index = self.window.track_combo.currentIndex() + 1
+        self.window.track_combo.currentIndexChanged.connect(self.on_subtitle_track_selected)
+ 
+    def on_subtitle_track_selected(self, index):
+        if index > -1:
+            track_index = index + 1
+            self.resolve_integration.set_active_subtitle_track(track_index)
+ 
+    def on_track_changed(self, index):
+        track_index = index + 1
         if track_index == 0:
             return
-            
+ 
         subs = self.resolve_integration.get_subtitles(track_index)
         subs_data = {i + 1: sub for i, sub in enumerate(subs)}
         self.window.populate_table(subs_data)
@@ -46,7 +52,7 @@ class ApplicationController:
 
         # Manually trigger the on_track_changed for the initial load
         if self.window.track_combo.count() > 0:
-            self.on_track_changed()
+            self.on_track_changed(self.window.track_combo.currentIndex())
 
     def on_item_clicked(self, item, column):
         start_frame_str = item.text(2)
@@ -54,9 +60,7 @@ class ApplicationController:
             start_frame = int(start_frame_str)
             timeline_info = self.resolve_integration.get_current_timeline_info()
             frame_rate = timeline_info['frame_rate']
-            drop_frame = self.window.drop_frame_checkbox.isChecked()
-            
-            timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
+            timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate)
             
             self.resolve_integration.timeline.SetCurrentTimecode(timecode)
             print(f"Navigated to timecode: {timecode}")
