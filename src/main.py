@@ -24,7 +24,7 @@ class ApplicationController:
             print(f"Error: {e}")
             raise SystemExit(1)
 
-        self.window = SubvigatorWindow()
+        self.window = SubvigatorWindow(self.resolve_integration)
         self.window.subtitles_data = []
         
     def connect_signals(self):
@@ -33,12 +33,22 @@ class ApplicationController:
         self.window.search_text.returnPressed.connect(self.filter_subtitles)
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
         self.window.track_combo.currentIndexChanged.connect(self.on_subtitle_track_selected)
+        self.window.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
  
     def on_subtitle_track_selected(self, index):
         if index > -1:
             track_index = index + 1
             self.resolve_integration.set_active_subtitle_track(track_index)
  
+    def on_export_reimport_clicked(self):
+        print("Export and re-import process started...")
+        success = self.resolve_integration.export_and_reimport_subtitles()
+        if success:
+            print("Export and re-import process completed successfully.")
+            self.refresh_data() # Refresh UI to show the new track
+        else:
+            print("Export and re-import process failed.")
+
     def on_track_changed(self, index):
         track_index = index + 1
         if track_index == 0:

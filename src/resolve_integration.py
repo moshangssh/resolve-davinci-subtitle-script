@@ -109,3 +109,95 @@ class ResolveIntegration:
         except Exception as e:
             print(f"Error exporting subtitles to JSON: {e}")
             return None
+            
+    def export_subtitles_to_srt(self, track_number=1, zero_based=False):
+        if not self.timeline:
+            return None
+
+        subtitles = self.get_subtitles_with_timecode(track_number)
+        if not subtitles:
+            return ""
+
+        timeline_start_frame = self.timeline.GetStartFrame() if zero_based else 0
+        
+        srt_content = ""
+        for i, sub in enumerate(subtitles):
+            frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
+            
+            start_frame = sub['in_frame'] - timeline_start_frame
+            end_frame = sub['out_frame'] - timeline_start_frame
+
+            start_time = self.tc_utils.timecode_to_srt_format(start_frame, frame_rate)
+            end_time = self.tc_utils.timecode_to_srt_format(end_frame, frame_rate)
+            
+            srt_content += f"{i + 1}\n"
+            srt_content += f"{start_time} --> {end_time}\n"
+            srt_content += f"{sub['text']}\n\n"
+
+        return srt_content
+
+    def export_and_reimport_subtitles(self, track_number=1):
+        """
+        Exports a zero-based SRT, and re-imports it onto a new, isolated
+        subtitle track at the correct timecode.
+        """
+        if not self.timeline or not self.project or not self.tc_utils:
+            print("ERROR: No active timeline, project, or timecode utility.")
+            return False
+
+        media_pool = self.project.GetMediaPool()
+        if not media_pool:
+            print("ERROR: Could not get Media Pool.")
+            return False
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                # 1. Get original subtitle data for positioning and export a zero-based SRT
+                original_subtitles = self.get_subtitles_with_timecode(track_number)
+                if not original_subtitles:
+                    print("INFO: No subtitles to export.")
+                    return False
+                
+                srt_content = self.export_subtitles_to_srt(track_number, zero_based=True)
+                srt_file_path = os.path.join(tmpdirname, "temp_subtitles.srt")
+                with open(srt_file_path, 'w', encoding='utf-8') as f:
+                    f.write(srt_content)
+
+                # 2. Import the zero-based SRT into the Media Pool
+                imported_media = media_pool.ImportMedia([srt_file_path])
+                if not imported_media:
+                    print("ERROR: Failed to import SRT file.")
+                    return False
+                subtitle_pool_item = imported_media[0]
+
+                # 3. Create a new track and isolate it by disabling all others
+                self.timeline.AddTrack("subtitle")
+                new_track_count = self.timeline.GetTrackCount("subtitle")
+                for i in range(1, new_track_count + 1):
+                    self.timeline.SetTrackEnable("subtitle", i, i == new_track_count)
+                print(f"INFO: New track created at index {new_track_count} and isolated.")
+
+                # 4. Set playhead to the original start position
+                first_subtitle_frame = original_subtitles[0]['in_frame']
+                target_timecode = self.tc_utils.timecode_from_frame(first_subtitle_frame, float(self.timeline.GetSetting('timelineFrameRate')), self.timeline.GetSetting('timelineDropFrame') == '1')
+                self.timeline.SetCurrentTimecode(target_timecode)
+                print(f"INFO: Playhead moved to original start time: {target_timecode}.")
+
+                # 5. Append the clip to the isolated track at the playhead
+                if not media_pool.AppendToTimeline(subtitle_pool_item):
+                    print("ERROR: Failed to append clip to the timeline.")
+                    # Re-enable tracks even on failure
+                    for i in range(1, new_track_count + 1):
+                        self.timeline.SetTrackEnable("subtitle", i, True)
+                    return False
+                
+                # 6. Re-enable all subtitle tracks
+                for i in range(1, new_track_count + 1):
+                    self.timeline.SetTrackEnable("subtitle", i, True)
+
+                print("SUCCESS: Subtitles re-imported and placed correctly.")
+                return True
+
+        except Exception as e:
+            print(f"FATAL: An unexpected exception occurred: {e}")
+            return False

@@ -202,3 +202,28 @@ pytest
 **测试结果：**
 - 覆盖率：89%
 - 通过率：100% (61/61 passed)
+
+
+
+---
+### 代码实现 [功能]
+[2025-07-07 21:40:16] - 在`resolve_integration.py`中添加了`export_subtitles_to_srt`函数。
+
+**实现细节：**
+该函数从DaVinci Resolve时间线中提取字幕，并将其格式化为SRT（SubRip Subtitle）格式的字符串。它利用`timecode_utils`来处理时间码的转换。
+
+**测试框架：**
+后续将使用`pytest`进行单元测试。
+
+**测试结果：**
+- 覆盖率：待定
+- 通过率：待定
+
+---
+**决策时间:** 2025/7/7 下午11:26:40
+**决策:** 采纳技术调研结果，实施新的字幕导出-导入工作流。
+**原因:** 调研确认了通过手动生成SRT文件，并利用DaVinci Resolve的API进行导入、创建新轨道和添加媒体是可行的。这是实现用户请求的核心技术路径。
+**行动:**
+1.  将技术调研结果归档到 `memory_bank/knowledge/davinci_resolve_srt_export_import.md`。
+2.  委派一个 `code-developer` 子任务，根据调研结果修改 `src/resolve_integration.py` 和 `src/main.py` 来实现完整的功能。
+**结果:** 技术方案已确定并记录，下一步是代码实现。

@@ -129,3 +129,57 @@ def test_export_subtitles_to_json_exception(mock_resolve_api, mocker):
         path = integration.export_subtitles_to_json(1)
         assert path is None
         mock_print.assert_called_once()
+
+
+def test_export_subtitles_to_srt_no_timeline(mock_resolve_api):
+    """Test export_subtitles_to_srt when there is no timeline."""
+    mock_resolve_api["project"].GetCurrentTimeline.return_value = None
+    integration = ResolveIntegration()
+    assert integration.export_subtitles_to_srt(1) is None
+
+def test_export_subtitles_to_srt_no_subtitles(mock_resolve_api):
+    """Test export_subtitles_to_srt when there are no subtitles."""
+    integration = ResolveIntegration()
+    integration.get_subtitles_with_timecode = MagicMock(return_value=[])
+    result = integration.export_subtitles_to_srt(1)
+    assert result == ""
+
+def test_export_subtitles_to_srt_with_data(mock_resolve_api):
+    """Test successful export of subtitles to SRT format."""
+    integration = ResolveIntegration()
+
+    # Mock the data returned by get_subtitles_with_timecode
+    mock_subs_data = [
+        {'id': 1, 'in_frame': 24, 'out_frame': 72, 'text': 'Hello world.'},
+        {'id': 2, 'in_frame': 96, 'out_frame': 144, 'text': 'This is a test.'}
+    ]
+    integration.get_subtitles_with_timecode = MagicMock(return_value=mock_subs_data)
+
+    # Mock timeline settings
+    mock_resolve_api["timeline"].GetSetting.return_value = 24.0
+
+    # Mock timecode conversion
+    integration.tc_utils.timecode_from_frame.side_effect = [
+        "00:00:01;00",  # Start time for sub 1
+        "00:00:03;00",  # End time for sub 1
+        "00:00:04;00",  # Start time for sub 2
+        "00:00:06;00"   # End time for sub 2
+    ]
+
+    expected_srt = (
+        "1\n"
+        "00,00,01,00 --> 00,00,03,00\n"
+        "Hello world.\n\n"
+        "2\n"
+        "00,00,04,00 --> 00,00,06,00\n"
+        "This is a test.\n\n"
+    )
+
+    result = integration.export_subtitles_to_srt(1)
+    assert result == expected_srt
+
+    # Verify that timecode conversion was called correctly
+    integration.tc_utils.timecode_from_frame.assert_any_call(24, 24.0)
+    integration.tc_utils.timecode_from_frame.assert_any_call(72, 24.0)
+    integration.tc_utils.timecode_from_frame.assert_any_call(96, 24.0)
+    integration.tc_utils.timecode_from_frame.assert_any_call(144, 24.0)

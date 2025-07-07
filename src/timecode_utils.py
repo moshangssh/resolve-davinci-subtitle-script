@@ -137,3 +137,16 @@ class TimecodeUtils:
         timecode_string = self.ffi.string(result_ptr).decode('utf-8')
 
         return timecode_string
+
+    def timecode_to_srt_format(self, frame, frame_rate):
+        if frame_rate == 0:
+            return "00:00:00,000"
+            
+        total_seconds = frame / frame_rate
+        
+        hours = int(total_seconds / 3600)
+        minutes = int((total_seconds % 3600) / 60)
+        seconds = int(total_seconds % 60)
+        milliseconds = int((total_seconds - int(total_seconds)) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"

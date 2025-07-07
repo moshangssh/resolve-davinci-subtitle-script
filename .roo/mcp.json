@@ -32,6 +32,9 @@
       "command": "npx",
       "args": [
         "@playwright/mcp@latest"
+      ],
+      "alwaysAllow": [
+        "browser_navigate"
       ]
     },
     "mcp-server-time": {

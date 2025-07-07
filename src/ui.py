@@ -11,9 +11,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
     QCheckBox,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt
 import re
+from src.resolve_integration import ResolveIntegration
 
 class NumericTreeWidgetItem(QTreeWidgetItem):
     def __lt__(self, other):
@@ -28,8 +30,9 @@ class NumericTreeWidgetItem(QTreeWidgetItem):
             return self.text(0) < other.text(0)
 
 class SubvigatorWindow(QMainWindow):
-    def __init__(self, parent=None):
+    def __init__(self, resolve_integration: ResolveIntegration, parent=None):
         super().__init__(parent)
+        self.resolve_integration = resolve_integration
         self.setWindowTitle("xdd sub")
         self.setGeometry(100, 100, 380, 700)
 
@@ -41,6 +44,7 @@ class SubvigatorWindow(QMainWindow):
         self._create_widgets()
         self._setup_layouts()
         self.search_text.textChanged.connect(self.filter_tree)
+        self.export_button.clicked.connect(self.export_subtitles)
 
     def _create_widgets(self):
         self.search_label = QLabel("Filter:")
@@ -60,6 +64,8 @@ class SubvigatorWindow(QMainWindow):
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
+        self.export_button = QPushButton("导出")
+        self.export_reimport_button = QPushButton("导出并重导入")
 
     def _setup_layouts(self):
         search_layout = QHBoxLayout()
@@ -74,6 +80,8 @@ class SubvigatorWindow(QMainWindow):
         bottom_layout.addWidget(self.track_combo)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.refresh_button)
+        bottom_layout.addWidget(self.export_button)
+        bottom_layout.addWidget(self.export_reimport_button)
         self.main_layout.addLayout(bottom_layout)
 
     def populate_table(self, subs_data=None, json_path=None, hide=False):
@@ -142,3 +150,25 @@ class SubvigatorWindow(QMainWindow):
                     matches = True # Or some other safe default
 
             item.setHidden(not matches)
+
+    def export_subtitles(self):
+        srt_content = self.resolve_integration.export_subtitles_to_srt()
+        if not srt_content:
+            # Optionally, show a message to the user that there's nothing to export
+            print("No subtitles to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Subtitles",
+            "",
+            "SRT Files (*.srt);;All Files (*)",
+        )
+
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(srt_content)
+                print(f"Subtitles successfully exported to {file_path}")
+            except IOError as e:
+                print(f"Error writing to file: {e}")
