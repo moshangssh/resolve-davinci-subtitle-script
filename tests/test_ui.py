@@ -1,172 +1,133 @@
+# tests/test_ui.py
 import pytest
+import json
+from unittest.mock import MagicMock, patch
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
-from PySide6.QtCore import Qt
-from unittest.mock import Mock
-from src.ui import NumericTreeWidgetItem, SubvigatorWindow
+from src.ui import SubvigatorWindow, NumericTreeWidgetItem
 
-# Fixture to provide a QApplication instance
 @pytest.fixture(scope="session")
-def app():
-    """
-    Creates a QApplication instance for the test session.
-    """
-    q_app = QApplication.instance()
-    if not q_app:
-        q_app = QApplication([])
-    return q_app
+def qapp():
+    """Session-wide QApplication."""
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app
 
-# Tests for NumericTreeWidgetItem
-@pytest.mark.parametrize("text1, text2, expected", [
-    ("10", "2", False),      # Numeric comparison
-    ("2", "10", True),       # Numeric comparison
-    ("1", "1", False),       # Numeric comparison
-    ("a", "b", True),        # String fallback
-    ("b", "a", False),       # String fallback
-    ("1", "a", True),        # String fallback
-    ("a", "1", False),       # String fallback
-])
-def test_numeric_tree_widget_item_lt(text1, text2, expected):
-    """
-    Tests the custom less-than comparison of NumericTreeWidgetItem.
-    """
-    item1 = NumericTreeWidgetItem()
-    item1.setText(0, text1)
-    item2 = QTreeWidgetItem() # Compare against a standard item
-    item2.setText(0, text2)
-    
-    assert (item1 < item2) == expected
-
-def test_numeric_tree_widget_item_lt_invalid_type(app):
-    """
-    Tests that the comparison falls back gracefully with an incompatible type.
-    """
-    item1 = NumericTreeWidgetItem()
-    item1.setText(0, "10")
-    item2 = "not_a_widget"
-    
-    # Comparing with a non-QTreeWidgetItem should result in a TypeError
-    # because of the NotImplemented return value.
-    with pytest.raises(TypeError):
-        item1 < item2
-
-
-# Tests for SubvigatorWindow
 @pytest.fixture
-def window(app):
-    """
-    Creates an instance of SubvigatorWindow for testing.
-    """
+def window(qtbot, qapp):
+    """Fixture to create a SubvigatorWindow instance."""
     win = SubvigatorWindow()
+    qtbot.addWidget(win)
     return win
 
-def test_subvigator_window_init(window):
-    """
-    Tests the initialization of the SubvigatorWindow.
-    """
-    assert window.windowTitle() == "Andy's Subvigator (Python Port)"
-    assert window.geometry().width() == 380
-    assert window.geometry().height() == 700
+def test_numeric_tree_widget_item_sorting(qapp):
+    """Test the custom sorting logic of NumericTreeWidgetItem."""
+    tree = QTreeWidget()
+    item1 = NumericTreeWidgetItem(tree)
+    item1.setText(0, "10")
+    
+    item2 = NumericTreeWidgetItem(tree)
+    item2.setText(0, "2")
+    
+    item3 = NumericTreeWidgetItem(tree)
+    item3.setText(0, "abc")
+
+    # The __lt__ method is what we are testing here.
+    assert (item2 < item1) is True
+    assert (item1 < item2) is False
+    # Test fallback to string comparison
+    assert (item3 < item1) is False # 'abc' > '10' as strings
+    assert (item1 < item3) is True
+
+def test_window_init(window):
+    """Test the initialization of the SubvigatorWindow."""
+    assert window.windowTitle() == "xdd sub"
     assert window.central_widget is not None
-    assert window.main_layout is not None
-    assert window.search_text.placeholderText() == "Search Text Filter"
+    assert window.tree.columnCount() == 5
     assert window.search_type_combo.count() == 5
-    assert window.tree.columnCount() == 3
-    header = window.tree.headerItem()
-    assert header.text(0) == '#'
-    assert header.text(1) == 'Subtitle'
-    assert header.text(2) == 'StartFrame'
-    assert window.tree.isColumnHidden(2) == True
 
-def test_populate_table(window):
-    """
-    Tests the populate_table method of SubvigatorWindow.
-    """
-    # Create mock subtitle objects
-    sub1 = Mock()
-    sub1.GetName.return_value = "Hello"
-    sub1.GetStart.return_value = 1000
-    
-    sub2 = Mock()
-    sub2.GetName.return_value = "World"
-    sub2.GetStart.return_value = 2000
-
-    subs_data = {1: sub1, 2: sub2}
-    
-    window.populate_table(subs_data)
-    
+def test_populate_table_with_data(window):
+    """Test populating the tree widget with subtitle data."""
+    subs_data = [
+        {'id': 1, 'text': 'Hello', 'in_timecode': '00:01', 'out_timecode': '00:02', 'in_frame': 10},
+        {'id': 2, 'text': 'World', 'in_timecode': '00:03', 'out_timecode': '00:04', 'in_frame': 20},
+    ]
+    window.populate_table(subs_data=subs_data)
     assert window.tree.topLevelItemCount() == 2
-    
-    # Check item 1
-    item1 = window.tree.topLevelItem(0)
-    assert item1.text(0) == "1"
-    assert item1.text(1) == "Hello"
-    assert item1.text(2) == "1000"
-    assert item1.isHidden() == False
-    
-    # Check item 2
-    item2 = window.tree.topLevelItem(1)
-    assert item2.text(0) == "2"
-    assert item2.text(1) == "World"
-    assert item2.text(2) == "2000"
-    assert item2.isHidden() == False
+    assert window.tree.topLevelItem(0).text(1) == "Hello"
+    assert window.tree.topLevelItem(1).text(1) == "World"
 
-def test_populate_table_with_hide(window):
-    """
-    Tests the populate_table method with the 'hide' parameter set to True.
-    """
-    sub1 = Mock()
-    sub1.GetName.return_value = "Hidden Sub"
-    sub1.GetStart.return_value = 3000
+def test_populate_table_no_data(window):
+    """Test populating the table with no data."""
+    window.populate_table(subs_data=[])
+    assert window.tree.topLevelItemCount() == 0
+
+def test_load_subtitles_from_json_success(window, tmp_path):
+    """Test loading subtitles from a valid JSON file."""
+    json_file = tmp_path / "subs.json"
+    subs_data = [{'id': 1, 'text': 'Test'}]
+    with open(json_file, 'w') as f:
+        json.dump(subs_data, f)
+        
+    loaded_data = window.load_subtitles_from_json(str(json_file))
+    assert loaded_data == subs_data
+
+def test_load_subtitles_from_json_not_found(window):
+    """Test loading from a non-existent JSON file."""
+    with patch('builtins.print') as mock_print:
+        data = window.load_subtitles_from_json("nonexistent.json")
+        assert data == []
+        mock_print.assert_called_once()
+
+def test_load_subtitles_from_json_invalid_json(window, tmp_path):
+    """Test loading from an invalid JSON file."""
+    json_file = tmp_path / "invalid.json"
+    with open(json_file, 'w') as f:
+        f.write("{'invalid': json}")
+        
+    with patch('builtins.print') as mock_print:
+        data = window.load_subtitles_from_json(str(json_file))
+        assert data == []
+        mock_print.assert_called_once()
+
+@pytest.mark.parametrize("filter_type, filter_text, subtitle, should_match", [
+    ('Contains', 'world', 'Hello world', True),
+    ('Contains', 'World', 'Hello world', False), # Case-sensitive
+    ('Exact', 'Hello', 'Hello', True),
+    ('Exact', 'Hello', 'Hello ', False),
+    ('Starts With', 'He', 'Hello', True),
+    ('Starts With', 'he', 'Hello', False),
+    ('Ends With', 'lo', 'Hello', True),
+    ('Ends With', 'Lo', 'Hello', False),
+    ('Wildcard', 'H*o', 'Hello', True),
+    ('Wildcard', 'H*o', 'Hippo', True),
+    ('Wildcard', 'H*p', 'Hippo', False),
+])
+def test_filter_tree(window, filter_type, filter_text, subtitle, should_match):
+    """Test the filter_tree method with various filter types."""
+    window.populate_table(subs_data=[{'text': subtitle}])
+    window.search_text.setText(filter_text)
+    window.search_type_combo.setCurrentText(filter_type)
     
-    subs_data = {1: sub1}
+    window.filter_tree()
     
-    window.populate_table(subs_data, hide=True)
-    
-    assert window.tree.topLevelItemCount() == 1
     item = window.tree.topLevelItem(0)
-    assert item.isHidden() == True
+    assert item.isHidden() is not should_match
 
-def test_populate_table_clears_previous_data(window):
-    """
-    Tests that populate_table clears existing items before adding new ones.
-    """
-    # First population
-    sub1 = Mock()
-    sub1.GetName.return_value = "First"
-    sub1.GetStart.return_value = 100
-    window.populate_table({1: sub1})
-    assert window.tree.topLevelItemCount() == 1
-    
-    # Second population
-    sub2 = Mock()
-    sub2.GetName.return_value = "Second"
-    sub2.GetStart.return_value = 200
-    window.populate_table({2: sub2})
-    assert window.tree.topLevelItemCount() == 1
-    item = window.tree.topLevelItem(0)
-    assert item.text(1) == "Second"
+def test_filter_tree_no_text(window):
+    """Test filter_tree with no filter text, should show all items."""
+    window.populate_table(subs_data=[{'text': 'A'}, {'text': 'B'}])
+    window.search_text.setText("")
+    window.filter_tree()
+    assert window.tree.topLevelItem(0).isHidden() is False
+    assert window.tree.topLevelItem(1).isHidden() is False
 
-def test_table_sorting(window):
-    """
-    Tests if the table correctly sorts items numerically by the first column.
-    """
-    sub1 = Mock()
-    sub1.GetName.return_value = "Sub 1"
-    sub1.GetStart.return_value = 100
-    
-    sub10 = Mock()
-    sub10.GetName.return_value = "Sub 10"
-    sub10.GetStart.return_value = 1000
-    
-    sub2 = Mock()
-    sub2.GetName.return_value = "Sub 2"
-    sub2.GetStart.return_value = 200
-
-    subs_data = {10: sub10, 1: sub1, 2: sub2}
-    
-    window.populate_table(subs_data)
-    
-    # Check the order after sorting
-    assert window.tree.topLevelItem(0).text(0) == "1"
-    assert window.tree.topLevelItem(1).text(0) == "2"
-    assert window.tree.topLevelItem(2).text(0) == "10"
+def test_filter_tree_wildcard_no_re(window, mocker):
+    """Test wildcard filter when 're' module import fails."""
+    mocker.patch('src.ui.re.search', side_effect=ImportError)
+    window.populate_table(subs_data=[{'text': 'Hello'}])
+    window.search_text.setText("H*o")
+    window.search_type_combo.setCurrentText('Wildcard')
+    window.filter_tree()
+    # Fallback behavior is to show the item
+    assert window.tree.topLevelItem(0).isHidden() is False

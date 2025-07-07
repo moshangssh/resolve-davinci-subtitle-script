@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtCore import Qt
+import re
 
 class NumericTreeWidgetItem(QTreeWidgetItem):
     def __lt__(self, other):
@@ -75,18 +76,38 @@ class SubvigatorWindow(QMainWindow):
         bottom_layout.addWidget(self.refresh_button)
         self.main_layout.addLayout(bottom_layout)
 
-    def populate_table(self, subs_data, hide=False):
+    def populate_table(self, subs_data=None, json_path=None, hide=False):
         self.tree.clear()
+        
+        if json_path:
+            subs_data = self.load_subtitles_from_json(json_path)
+
+        if not subs_data:
+            return
+
         for sub in subs_data:
             item = NumericTreeWidgetItem(self.tree)
-            item.setText(0, str(sub['id']))
-            item.setText(1, sub['text'])
-            item.setText(2, sub['in_timecode'])
-            item.setText(3, sub['out_timecode'])
-            item.setText(4, str(sub['in_frame']))
+            item.setText(0, str(sub.get('index', sub.get('id', ''))))
+            item.setText(1, sub.get('text', ''))
+            item.setText(2, sub.get('start', sub.get('in_timecode', '')))
+            item.setText(3, sub.get('end', sub.get('out_timecode', '')))
+            # The original 'in_frame' is not in the JSON, so we may need to adjust
+            # how we handle jumping to timecode if that's still a feature.
+            # For now, let's store something, or leave it empty.
+            # If the original object is needed, the design must be reconsidered.
+            item.setText(4, str(sub.get('in_frame', ''))) # Keep for now for compatibility
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
+
+    def load_subtitles_from_json(self, file_path):
+        import json
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading subtitles from JSON: {e}")
+            return []
 
     def filter_tree(self):
         filter_text = self.search_text.text()
@@ -111,18 +132,13 @@ class SubvigatorWindow(QMainWindow):
             elif filter_type == 'Wildcard':
                 # Basic wildcard support: * matches any sequence of characters
                 # More complex patterns could be handled with regex
-                parts = filter_text.split('*')
-                if len(parts) == 1:
-                    matches = filter_text in subtitle_text
-                else:
-                    try:
-                        import re
-                        # Escape special characters except for our wildcard '*'
-                        # which we replace with '.*'
-                        regex_pattern = '.*'.join(re.escape(part) for part in parts)
-                        matches = re.search(regex_pattern, subtitle_text) is not None
-                    except ImportError:
-                        # Fallback if re is not available (unlikely)
-                        matches = True # Or some other safe default
+                try:
+                    # Escape special characters except for our wildcard '*'
+                    # which we replace with '.*'
+                    regex_pattern = '^' + '.*'.join(re.escape(part) for part in filter_text.split('*')) + '$'
+                    matches = re.search(regex_pattern, subtitle_text) is not None
+                except ImportError:
+                    # Fallback if re is not available (unlikely)
+                    matches = True # Or some other safe default
 
             item.setHidden(not matches)

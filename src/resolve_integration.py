@@ -1,4 +1,7 @@
 # resolve_integration.py
+import json
+import tempfile
+import os
 from .timecode_utils import TimecodeUtils
 class ResolveIntegration:
     def __init__(self):
@@ -82,3 +85,27 @@ class ResolveIntegration:
             self.timeline.SetTrackEnable("subtitle", i, i == track_index)
         
         return True
+    def export_subtitles_to_json(self, track_number=1):
+        subtitles = self.get_subtitles_with_timecode(track_number)
+        if not subtitles:
+            return None
+
+
+        output_data = []
+        for sub in subtitles:
+            output_data.append({
+                "index": sub['id'],
+                "start": sub['in_timecode'],
+                "end": sub['out_timecode'],
+                "text": sub['text']
+            })
+
+        try:
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(temp_dir, "subtitles.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+            return file_path
+        except Exception as e:
+            print(f"Error exporting subtitles to JSON: {e}")
+            return None

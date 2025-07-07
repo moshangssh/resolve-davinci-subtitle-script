@@ -14,17 +14,18 @@ from src.timecode_utils import TimecodeUtils
 from src.ui import SubvigatorWindow
 
 class ApplicationController:
-    def __init__(self):
+    def __init__(self, resolve_integration=None, timecode_utils=None):
         self.app = QApplication.instance() or QApplication(sys.argv)
         
         try:
-            self.resolve_integration = ResolveIntegration()
-            self.timecode_utils = TimecodeUtils(self.resolve_integration.resolve)
+            self.resolve_integration = resolve_integration or ResolveIntegration()
+            self.timecode_utils = timecode_utils or TimecodeUtils(self.resolve_integration.resolve)
         except ImportError as e:
             print(f"Error: {e}")
-            sys.exit(1)
+            raise SystemExit(1)
 
         self.window = SubvigatorWindow()
+        self.window.subtitles_data = []
         
     def connect_signals(self):
         self.window.refresh_button.clicked.connect(self.refresh_data)
@@ -42,9 +43,16 @@ class ApplicationController:
         track_index = index + 1
         if track_index == 0:
             return
- 
+
+        # Export subtitles to JSON and get the path
+        json_path = self.resolve_integration.export_subtitles_to_json(track_index)
+        
+        # We still need the original data for the timecode jump functionality
         subs_data = self.resolve_integration.get_subtitles_with_timecode(track_index)
-        self.window.populate_table(subs_data)
+        self.window.subtitles_data = subs_data # Store for later use
+
+        # Populate the table from the JSON file
+        self.window.populate_table(json_path=json_path)
         self.filter_subtitles()
 
     def refresh_data(self):
@@ -61,12 +69,30 @@ class ApplicationController:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
     def on_item_clicked(self, item, column):
-        start_frame_str = item.text(4)
-        if start_frame_str:
-            start_frame = int(start_frame_str)
+        item_id_str = item.text(0)
+        if not item_id_str:
+            return
+
+        try:
+            item_id = int(item_id_str)
+        except ValueError:
+            return
+
+        # Find the corresponding subtitle object from the stored data
+        sub_obj = None
+        if hasattr(self.window, 'subtitles_data'):
+            for sub in self.window.subtitles_data:
+                if sub['id'] == item_id:
+                    sub_obj = sub
+                    break
+        
+        if sub_obj:
+            start_frame = sub_obj['in_frame']
             timeline_info = self.resolve_integration.get_current_timeline_info()
             frame_rate = timeline_info['frame_rate']
-            timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate)
+            drop_frame = self.resolve_integration.timeline.GetSetting('timelineDropFrame') == '1'
+
+            timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
             
             self.resolve_integration.timeline.SetCurrentTimecode(timecode)
             print(f"Navigated to timecode: {timecode}")

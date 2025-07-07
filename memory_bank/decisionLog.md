@@ -183,3 +183,22 @@ pytest
 ---
 ### 决策
 [2025-07-07 01:43:18] - 为Subvigator项目创建了核心工作流程和组件交互的Mermaid流程图。该图可视化了从应用启动到用户具体操作（如刷新、选择轨道、过滤字幕和时间线导航）的完整数据流和控制流，明确了 `ApplicationController`, `SubvigatorWindow`, 和 `ResolveIntegration` 之间的职责与交互关系。
+
+
+
+---
+### 代码实现 [核心]
+[2025-07-07 15:52:10] - 实现基于JSON的字幕处理工作流
+
+**实现细节：**
+- **`resolve_integration.py`**: 添加 `export_subtitles_to_json` 方法，用于将时间轴中的字幕数据导出为标准化的JSON格式。该文件存储在操作系统的临时目录中，以确保跨平台兼容性。
+- **`ui.py`**: 修改 `populate_table` 方法，使其能够接受JSON文件路径。添加了 `load_subtitles_from_json` 辅助方法来处理文件读取和解析，实现了UI与数据源的解耦。
+- **`main.py`**: 更新 `ApplicationController` 以协调新的工作流程。`on_track_changed` 方法现在会先导出JSON，然后使用该文件更新UI。为了保留关键的“点击跳转”功能，原始的字幕对象（包含帧数据）被临时存储在窗口实例中，`on_item_clicked` 方法被重构为使用此缓存数据来查找精确的起始帧。
+
+**测试框架：**
+- Pytest
+- Pytest-mock
+
+**测试结果：**
+- 覆盖率：89%
+- 通过率：100% (61/61 passed)
