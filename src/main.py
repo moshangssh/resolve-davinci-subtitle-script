@@ -30,6 +30,8 @@ class ApplicationController:
     def connect_signals(self):
         self.window.refresh_button.clicked.connect(self.refresh_data)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
+        self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.window.tree.itemChanged.connect(self.on_item_changed)
         self.window.search_text.returnPressed.connect(self.filter_subtitles)
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
         self.window.track_combo.currentIndexChanged.connect(self.on_subtitle_track_selected)
@@ -41,14 +43,10 @@ class ApplicationController:
             self.resolve_integration.set_active_subtitle_track(track_index)
  
     def on_export_reimport_clicked(self):
-        print("Export and re-import process started...")
-        new_track_index = self.resolve_integration.export_and_reimport_subtitles()
-        if new_track_index:
-            print(f"Export and re-import process completed successfully. New track at index {new_track_index}.")
-            self.refresh_data() # Refresh UI to show the new track
-            self.window.track_combo.setCurrentIndex(new_track_index - 1)
-        else:
-            print("Export and re-import process failed.")
+        current_track = self.window.track_combo.currentIndex()
+        if current_track >= 0:
+            self.resolve_integration.export_and_reimport_subtitles(current_track + 1)
+            self.refresh_data()
 
     def on_track_changed(self, index):
         track_index = index + 1
@@ -80,33 +78,30 @@ class ApplicationController:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
     def on_item_clicked(self, item, column):
-        item_id_str = item.text(0)
-        if not item_id_str:
-            return
-
         try:
+            item_id_str = item.text(0)
+            if not item_id_str:
+                return
+
             item_id = int(item_id_str)
-        except ValueError:
-            return
 
-        # Find the corresponding subtitle object from the stored data
-        sub_obj = None
-        if hasattr(self.window, 'subtitles_data'):
-            for sub in self.window.subtitles_data:
-                if sub['id'] == item_id:
-                    sub_obj = sub
-                    break
-        
-        if sub_obj:
-            start_frame = sub_obj['in_frame']
-            timeline_info = self.resolve_integration.get_current_timeline_info()
-            frame_rate = timeline_info['frame_rate']
-            drop_frame = self.resolve_integration.timeline.GetSetting('timelineDropFrame') == '1'
+            # Find the corresponding subtitle object from the stored data
+            sub_obj = next((s for s in self.window.subtitles_data if s['id'] == item_id), None)
 
-            timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
-            
-            self.resolve_integration.timeline.SetCurrentTimecode(timecode)
-            print(f"Navigated to timecode: {timecode}")
+            if sub_obj:
+                start_frame = sub_obj['in_frame']
+                timeline_info = self.resolve_integration.get_current_timeline_info()
+                frame_rate = timeline_info['frame_rate']
+                drop_frame = self.resolve_integration.timeline.GetSetting('timelineDropFrame') == '1'
+
+                timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
+
+                self.resolve_integration.timeline.SetCurrentTimecode(timecode)
+                print(f"Navigated to timecode: {timecode}")
+            else:
+                print(f"Failed to get subtitle object for ID {item_id}")
+        except (ValueError, IndexError):
+            print(f"Failed to get subtitle object for ID {item_id_str}")
 
     def filter_subtitles(self):
         search_text = self.window.search_text.text()
@@ -118,6 +113,26 @@ class ApplicationController:
         for i in range(self.window.tree.topLevelItemCount()):
             item = self.window.tree.topLevelItem(i)
             item.setHidden(search_text.lower() not in item.text(3).lower())
+
+    def on_item_double_clicked(self, item, column):
+        if column == 1: # Only allow editing the 'Subtitle' column
+            self.window.tree.editItem(item, column)
+
+    def on_item_changed(self, item, column):
+        if column == 1:
+            try:
+                item_id = int(item.text(0))
+                new_text = item.text(1)
+                
+                sub_obj = next((s for s in self.window.subtitles_data if s['id'] == item_id), None)
+                
+                if sub_obj:
+                    sub_obj['text'] = new_text
+                    if not self.resolve_integration.update_subtitle_text(sub_obj, new_text):
+                        print("Failed to update subtitle in Resolve.")
+
+            except Exception as e:
+                print(f"Failed to update subtitle: {e}")
 
     def run(self):
         self.connect_signals()

@@ -298,3 +298,52 @@ def test_main_entry_point(mock_main_func):
         # Re-importing doesn't re-execute the top level code in python, so we can't do it this way.
         # We will just accept this line as uncovered.
         pass
+
+def test_on_item_changed_successful_update(app_setup, mocker):
+    """Test that subtitle text is updated when an item is changed."""
+    controller = app_setup["controller"]
+    mock_item = MagicMock()
+    mock_item.text.side_effect = ["1", "New Subtitle Text"]
+    controller.window.subtitles_data = [{'id': 1, 'text': "Old Text"}]
+    app_setup["resolve_integration"].update_subtitle_text.return_value = True
+    mock_print = mocker.patch('builtins.print')
+
+    controller.on_item_changed(mock_item, 1)
+
+    app_setup["resolve_integration"].update_subtitle_text.assert_called_once()
+    mock_print.assert_not_called()
+
+def test_on_item_changed_exception_on_update(app_setup, mocker):
+    """Test exception handling during subtitle update."""
+    controller = app_setup["controller"]
+    mock_item = MagicMock()
+    mock_item.text.side_effect = ["1", "New Text"]
+    controller.window.subtitles_data = [{'id': 1}]
+    app_setup["resolve_integration"].update_subtitle_text.return_value = False
+    mock_print = mocker.patch('builtins.print')
+
+    controller.on_item_changed(mock_item, 1)
+
+    mock_print.assert_called_with("Failed to update subtitle in Resolve.")
+
+def test_on_export_reimport_clicked(app_setup):
+    """Test the export and re-import functionality."""
+    controller = app_setup["controller"]
+    
+    # Mock the currently selected track index
+    with patch.object(controller.window.track_combo, 'currentIndex', return_value=0):
+        controller.on_export_reimport_clicked()
+        
+    app_setup["resolve_integration"].export_and_reimport_subtitles.assert_called_once_with(1)
+
+def test_on_item_clicked_index_error(app_setup, mocker):
+    """Test IndexError handling in on_item_clicked."""
+    controller = app_setup["controller"]
+    mock_item = MagicMock()
+    mock_item.text.return_value = "99"  # An index that will be out of bounds
+    controller.window.subtitles_data = [{'id': 1}]
+    mock_print = mocker.patch('builtins.print')
+
+    controller.on_item_clicked(mock_item, 0)
+
+    mock_print.assert_called_with("Failed to get subtitle object for ID 99")

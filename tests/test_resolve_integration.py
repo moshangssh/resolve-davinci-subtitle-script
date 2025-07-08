@@ -96,6 +96,14 @@ def test_set_active_subtitle_track_success(mock_resolve_api):
     mock_resolve_api["timeline"].SetTrackEnable.assert_any_call("subtitle", 1, True)
     mock_resolve_api["timeline"].SetTrackEnable.assert_any_call("subtitle", 2, False)
 
+def test_set_active_subtitle_track_index_out_of_bounds(mock_resolve_api):
+    """Test set_active_subtitle_track with an out-of-bounds index."""
+    mock_resolve_api["timeline"].GetTrackCount.return_value = 2
+    integration = ResolveIntegration()
+    result = integration.set_active_subtitle_track(3) # Index 3 is out of bounds for 2 tracks
+    assert result is False
+    mock_resolve_api["timeline"].SetTrackEnable.assert_not_called()
+
 def test_export_subtitles_to_json_success(mock_resolve_api, mocker):
     """Test export_subtitles_to_json."""
     mocker.patch('src.resolve_integration.tempfile.gettempdir', return_value="/tmp")
@@ -366,3 +374,48 @@ def test_export_and_reimport_subtitles_fatal_exception(mock_resolve_api, mocker)
         result = integration.export_and_reimport_subtitles(1)
         assert result is False
         mock_print.assert_any_call("FATAL: An unexpected exception occurred: Disk is full")
+
+def test_get_resolve_instance_fusionscript_not_found(mocker):
+    """Test _get_resolve_instance when fusionscript is not found."""
+    mocker.patch.dict('sys.modules', {'fusionscript': None})
+    with pytest.raises(ImportError):
+        ResolveIntegration()
+
+def test_get_resolve_instance_bmd_python_not_found(mocker):
+    """Test _get_resolve_instance when DaVinciResolveScript is not found."""
+    mocker.patch.dict('sys.modules', {'DaVinciResolveScript': None})
+    with pytest.raises(ImportError):
+        ResolveIntegration()
+
+def test_update_subtitle_text_success(mock_resolve_api):
+    """Test successful update of subtitle text."""
+    integration = ResolveIntegration()
+    mock_item = MagicMock()
+    mock_item.GetStart.return_value = 12345
+    mock_item.UpdateText.return_value = True
+    mock_resolve_api["timeline"].GetItemListInTrack.return_value = [mock_item]
+
+    subtitle_obj = {'id': 1, 'track_index': 1, 'in_frame': 12345}
+    new_text = "Updated text"
+
+    result = integration.update_subtitle_text(subtitle_obj, new_text)
+
+    assert result is True
+    mock_item.SetClipColor.assert_called_with('Orange')
+    mock_item.UpdateText.assert_called_once_with(new_text)
+
+def test_update_subtitle_text_no_timeline(mock_resolve_api):
+    """Test update_subtitle_text when there is no timeline."""
+    mock_resolve_api["project"].GetCurrentTimeline.return_value = None
+    integration = ResolveIntegration()
+    result = integration.update_subtitle_text({'id': 1}, "text")
+    assert result is False
+
+def test_update_subtitle_text_item_not_found(mock_resolve_api):
+    """Test update_subtitle_text when the item is not found in the timeline."""
+    integration = ResolveIntegration()
+    mock_resolve_api["timeline"].GetItemListInTrack.return_value = []
+
+    result = integration.update_subtitle_text({'id': 1, 'track_index': 1, 'in_frame': 123}, "text")
+
+    assert result is False

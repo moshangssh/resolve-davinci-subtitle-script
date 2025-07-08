@@ -21,12 +21,9 @@ class NumericTreeWidgetItem(QTreeWidgetItem):
     def __lt__(self, other):
         if not isinstance(other, QTreeWidgetItem):
             return NotImplemented
-
         try:
-            # First, try to compare numerically
             return int(self.text(0)) < int(other.text(0))
         except (ValueError, TypeError):
-            # If numerical comparison fails, fallback to string comparison
             return self.text(0) < other.text(0)
 
 class SubvigatorWindow(QMainWindow):
@@ -44,7 +41,6 @@ class SubvigatorWindow(QMainWindow):
         self._create_widgets()
         self._setup_layouts()
         self.search_text.textChanged.connect(self.filter_tree)
-        self.export_button.clicked.connect(self.export_subtitles)
 
     def _create_widgets(self):
         self.search_label = QLabel("Filter:")
@@ -64,7 +60,6 @@ class SubvigatorWindow(QMainWindow):
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
-        self.export_button = QPushButton("导出")
         self.export_reimport_button = QPushButton("导出并重导入")
 
     def _setup_layouts(self):
@@ -80,7 +75,6 @@ class SubvigatorWindow(QMainWindow):
         bottom_layout.addWidget(self.track_combo)
         bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.refresh_button)
-        bottom_layout.addWidget(self.export_button)
         bottom_layout.addWidget(self.export_reimport_button)
         self.main_layout.addLayout(bottom_layout)
 
@@ -97,6 +91,7 @@ class SubvigatorWindow(QMainWindow):
             item = NumericTreeWidgetItem(self.tree)
             item.setText(0, str(sub.get('index', sub.get('id', ''))))
             item.setText(1, sub.get('text', ''))
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setText(2, sub.get('start', sub.get('in_timecode', '')))
             item.setText(3, sub.get('end', sub.get('out_timecode', '')))
             # The original 'in_frame' is not in the JSON, so we may need to adjust
@@ -116,6 +111,23 @@ class SubvigatorWindow(QMainWindow):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             print(f"Error loading subtitles from JSON: {e}")
             return []
+
+    def export_subtitles(self):
+        if not hasattr(self, 'subtitles_data') or not self.subtitles_data:
+            print("No subtitle data to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Subtitles", "", "JSON (*.json)")
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(self.subtitles_data, f, ensure_ascii=False, indent=2)
+        except (IOError, TypeError) as e:
+            print(f"Failed to export subtitles: {e}")
 
     def filter_tree(self):
         filter_text = self.search_text.text()
@@ -150,25 +162,3 @@ class SubvigatorWindow(QMainWindow):
                     matches = True # Or some other safe default
 
             item.setHidden(not matches)
-
-    def export_subtitles(self):
-        srt_content = self.resolve_integration.export_subtitles_to_srt()
-        if not srt_content:
-            # Optionally, show a message to the user that there's nothing to export
-            print("No subtitles to export.")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Subtitles",
-            "",
-            "SRT Files (*.srt);;All Files (*)",
-        )
-
-        if file_path:
-            try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(srt_content)
-                print(f"Subtitles successfully exported to {file_path}")
-            except IOError as e:
-                print(f"Error writing to file: {e}")

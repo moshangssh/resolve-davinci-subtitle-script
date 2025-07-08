@@ -26,9 +26,13 @@ class ResolveIntegration:
             pass # Try the next import
         try:
             import DaVinciResolveScript as dvr_script
-            return dvr_script.scriptapp("Resolve")
+            resolve_app = dvr_script.scriptapp("Resolve")
         except ImportError:
             return None
+
+        if resolve_app is None:
+            raise ImportError("Could not get Resolve script app instance.")
+        return resolve_app
 
     def get_current_timeline_info(self):
         if not self.timeline:
@@ -164,7 +168,7 @@ class ResolveIntegration:
         """
         if not self.timeline or not self.project or not self.tc_utils:
             print("ERROR: No active timeline, project, or timecode utility.")
-            return None
+            return False
 
         media_pool = self.project.GetMediaPool()
         if not media_pool:
@@ -177,7 +181,7 @@ class ResolveIntegration:
                 original_subtitles = self.get_subtitles_with_timecode(track_number)
                 if not original_subtitles:
                     print("INFO: No subtitles to export.")
-                    return None
+                    return False
                 
                 srt_content = self.export_subtitles_to_srt(track_number, zero_based=True)
                 srt_file_path = os.path.join(tmpdirname, "temp_subtitles.srt")
@@ -188,7 +192,7 @@ class ResolveIntegration:
                 imported_media = media_pool.ImportMedia([srt_file_path])
                 if not imported_media:
                     print("ERROR: Failed to import SRT file.")
-                    return None
+                    return False
                 subtitle_pool_item = imported_media[0]
 
                 # 3. Create a new track and isolate it by disabling all others
@@ -210,15 +214,31 @@ class ResolveIntegration:
                     # Re-enable tracks even on failure
                     for i in range(1, new_track_count + 1):
                         self.timeline.SetTrackEnable("subtitle", i, True)
-                    return None
+                    return False
                 
                 # 6. Only the new subtitle track remains enabled.
                 # for i in range(1, new_track_count + 1):
                 #     self.timeline.SetTrackEnable("subtitle", i, True)
 
                 print("SUCCESS: Subtitles re-imported and placed correctly on a new, isolated track.")
-                return new_track_count
+                return True
 
         except Exception as e:
             print(f"FATAL: An unexpected exception occurred: {e}")
-            return None
+            return False
+
+    def update_subtitle_text(self, subtitle_object, new_text):
+        """
+        Updates the text of a given subtitle object.
+        """
+        if not self.timeline or not subtitle_object:
+            return False
+
+        # Find the timeline item that corresponds to the subtitle_object's ID
+        items = self.timeline.GetItemListInTrack("subtitle", subtitle_object['track_index'])
+        for item in items:
+            if item.GetStart() == subtitle_object['in_frame']:
+                item.SetClipColor('Orange')
+                return item.UpdateText(new_text)
+
+        return False

@@ -132,3 +132,63 @@ def test_filter_tree_wildcard_no_re(window, mocker):
     window.filter_tree()
     # Fallback behavior is to show the item
     assert window.tree.topLevelItem(0).isHidden() is False
+
+def test_export_subtitles_success(window, tmp_path, mocker):
+    """Test successful export of subtitles to a JSON file."""
+    subs_data = [{'id': 1, 'text': 'Export Test'}]
+    window.subtitles_data = subs_data
+    
+    mock_file_dialog = mocker.patch('PySide6.QtWidgets.QFileDialog.getSaveFileName',
+                                    return_value=(str(tmp_path / "export.json"), "JSON (*.json)"))
+    
+    window.export_subtitles()
+    
+    mock_file_dialog.assert_called_once()
+    with open(tmp_path / "export.json", 'r') as f:
+        exported_data = json.load(f)
+    assert exported_data == subs_data
+
+def test_export_subtitles_no_data(window, mocker):
+    """Test exporting when there is no subtitle data."""
+    window.subtitles_data = []
+    mock_file_dialog = mocker.patch('PySide6.QtWidgets.QFileDialog.getSaveFileName')
+    
+    window.export_subtitles()
+    
+    mock_file_dialog.assert_not_called()
+
+def test_export_subtitles_exception_on_write(window, tmp_path, mocker):
+    """Test exception handling during file write in export_subtitles."""
+    window.subtitles_data = [{'id': 1}]
+    mocker.patch('PySide6.QtWidgets.QFileDialog.getSaveFileName',
+                 return_value=(str(tmp_path / "export.json"), "JSON (*.json)"))
+    
+    mocker.patch('builtins.open', side_effect=IOError("Disk full"))
+    mock_print = mocker.patch('builtins.print')
+    
+    window.export_subtitles()
+    
+    mock_print.assert_called_with("Failed to export subtitles: Disk full")
+
+def test_export_subtitles_no_file_selected(window, mocker):
+    """Test that nothing happens if the user cancels the file dialog."""
+    mocker.patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=("", ""))
+    mock_open = mocker.patch('builtins.open')
+    
+    window.export_subtitles()
+    
+    mock_open.assert_not_called()
+
+def test_numeric_tree_widget_item_sorting_type_error(qapp):
+    """Test TypeError handling in NumericTreeWidgetItem sorting."""
+    tree = QTreeWidget()
+    item1 = NumericTreeWidgetItem(tree)
+    item1.setText(0, "10")
+
+    # A non-QTreeWidgetItem object
+    other_item = "not a tree item"
+
+    # This should not raise an exception, but return NotImplemented
+    # which Python interprets as False for the less-than operation.
+    with pytest.raises(TypeError):
+        item1 < other_item
