@@ -272,3 +272,97 @@ def test_export_subtitles_to_srt_scenarios(mock_resolve_api, start_timecode, zer
     # Assert the output is correct
     # A direct string comparison can be brittle, let's compare line by line after splitting.
     assert result.strip() == expected_srt_output.strip()
+
+
+def test_resolve_integration_init_timecode_utils_fails(mock_resolve_api, mocker):
+    """Test initialization when TimecodeUtils fails to initialize."""
+    mocker.patch('src.resolve_integration.TimecodeUtils', side_effect=Exception("TC Init Error"))
+    mock_print = mocker.patch('builtins.print')
+    
+    integration = ResolveIntegration()
+    
+    assert integration.tc_utils is None
+    mock_print.assert_called_with("Error initializing TimecodeUtils: TC Init Error")
+
+def test_get_subtitles_with_timecode_no_tc_utils(mock_resolve_api):
+    """Test get_subtitles_with_timecode when TimecodeUtils is not available."""
+    mock_sub = MagicMock()
+    mock_resolve_api["timeline"].GetItemListInTrack.return_value = [mock_sub]
+    
+    integration = ResolveIntegration()
+    integration.tc_utils = None  # Simulate TC utils failing
+    
+    with patch('builtins.print') as mock_print:
+        subs = integration.get_subtitles_with_timecode(1)
+        assert subs == []
+        mock_print.assert_called_with("TimecodeUtils not available.")
+
+def test_export_and_reimport_subtitles_no_timeline(mock_resolve_api):
+    """Test re-import process when timeline is not available."""
+    mock_resolve_api["project"].GetCurrentTimeline.return_value = None
+    integration = ResolveIntegration()
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_called_with("ERROR: No active timeline, project, or timecode utility.")
+
+def test_export_and_reimport_subtitles_no_media_pool(mock_resolve_api):
+    """Test re-import process when media pool is not available."""
+    mock_resolve_api["project"].GetMediaPool.return_value = None
+    integration = ResolveIntegration()
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_called_with("ERROR: Could not get Media Pool.")
+
+def test_export_and_reimport_subtitles_no_original_subs(mock_resolve_api):
+    """Test re-import process when there are no subtitles to export."""
+    integration = ResolveIntegration()
+    integration.get_subtitles_with_timecode = MagicMock(return_value=[])
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_called_with("INFO: No subtitles to export.")
+
+def test_export_and_reimport_subtitles_import_fails(mock_resolve_api, mocker):
+    """Test re-import process when SRT import fails."""
+    mocker.patch('builtins.open', mock_open(read_data="srt content"))
+    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory')
+    
+    integration = ResolveIntegration()
+    integration.get_subtitles_with_timecode = MagicMock(return_value=[{'id': 1, 'in_frame': 10, 'out_frame': 20, 'text': 'test'}])
+    mock_resolve_api["project"].GetMediaPool().ImportMedia.return_value = [] # Simulate import failure
+    
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_any_call("ERROR: Failed to import SRT file.")
+
+def test_export_and_reimport_subtitles_append_fails(mock_resolve_api, mocker):
+    """Test re-import process when appending to timeline fails."""
+    mocker.patch('builtins.open', mock_open(read_data="srt content"))
+    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory')
+    
+    mock_pool_item = MagicMock()
+    mock_resolve_api["project"].GetMediaPool().ImportMedia.return_value = [mock_pool_item]
+    mock_resolve_api["project"].GetMediaPool().AppendToTimeline.return_value = False # Simulate append failure
+    mock_resolve_api["timeline"].GetTrackCount.return_value = 2 # After AddTrack
+
+    integration = ResolveIntegration()
+    integration.get_subtitles_with_timecode = MagicMock(return_value=[{'id': 1, 'in_frame': 0, 'out_frame': 10, 'text': 'test'}])
+    
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_any_call("ERROR: Failed to append clip to the timeline.")
+        # Check if tracks are re-enabled on failure
+        mock_resolve_api["timeline"].SetTrackEnable.assert_any_call("subtitle", 2, True)
+
+def test_export_and_reimport_subtitles_fatal_exception(mock_resolve_api, mocker):
+    """Test re-import process with an unexpected fatal exception."""
+    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory', side_effect=Exception("Disk is full"))
+    integration = ResolveIntegration()
+    with patch('builtins.print') as mock_print:
+        result = integration.export_and_reimport_subtitles(1)
+        assert result is False
+        mock_print.assert_any_call("FATAL: An unexpected exception occurred: Disk is full")

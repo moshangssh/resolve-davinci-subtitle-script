@@ -16,7 +16,8 @@ def qapp():
 @pytest.fixture
 def window(qtbot, qapp):
     """Fixture to create a SubvigatorWindow instance."""
-    win = SubvigatorWindow()
+    mock_resolve_integration = MagicMock()
+    win = SubvigatorWindow(resolve_integration=mock_resolve_integration)
     qtbot.addWidget(win)
     return win
 

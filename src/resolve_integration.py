@@ -164,7 +164,7 @@ class ResolveIntegration:
         """
         if not self.timeline or not self.project or not self.tc_utils:
             print("ERROR: No active timeline, project, or timecode utility.")
-            return False
+            return None
 
         media_pool = self.project.GetMediaPool()
         if not media_pool:
@@ -177,7 +177,7 @@ class ResolveIntegration:
                 original_subtitles = self.get_subtitles_with_timecode(track_number)
                 if not original_subtitles:
                     print("INFO: No subtitles to export.")
-                    return False
+                    return None
                 
                 srt_content = self.export_subtitles_to_srt(track_number, zero_based=True)
                 srt_file_path = os.path.join(tmpdirname, "temp_subtitles.srt")
@@ -188,7 +188,7 @@ class ResolveIntegration:
                 imported_media = media_pool.ImportMedia([srt_file_path])
                 if not imported_media:
                     print("ERROR: Failed to import SRT file.")
-                    return False
+                    return None
                 subtitle_pool_item = imported_media[0]
 
                 # 3. Create a new track and isolate it by disabling all others
@@ -210,15 +210,15 @@ class ResolveIntegration:
                     # Re-enable tracks even on failure
                     for i in range(1, new_track_count + 1):
                         self.timeline.SetTrackEnable("subtitle", i, True)
-                    return False
+                    return None
                 
-                # 6. Re-enable all subtitle tracks
-                for i in range(1, new_track_count + 1):
-                    self.timeline.SetTrackEnable("subtitle", i, True)
+                # 6. Only the new subtitle track remains enabled.
+                # for i in range(1, new_track_count + 1):
+                #     self.timeline.SetTrackEnable("subtitle", i, True)
 
-                print("SUCCESS: Subtitles re-imported and placed correctly.")
-                return True
+                print("SUCCESS: Subtitles re-imported and placed correctly on a new, isolated track.")
+                return new_track_count
 
         except Exception as e:
             print(f"FATAL: An unexpected exception occurred: {e}")
-            return False
+            return None

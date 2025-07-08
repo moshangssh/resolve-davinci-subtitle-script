@@ -59,7 +59,8 @@
         "process_thought",
         "plan_task",
         "analyze_task",
-        "split_tasks"
+        "split_tasks",
+        "reflect_task"
       ]
     },
     "mcp-deepwiki": {

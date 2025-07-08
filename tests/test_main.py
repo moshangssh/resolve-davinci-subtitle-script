@@ -18,7 +18,7 @@ def app_setup(qtbot, mocker):
     mock_resolve_integration = MagicMock()
     mock_timecode_utils = MagicMock()
     
-    window = SubvigatorWindow()
+    window = SubvigatorWindow(resolve_integration=mock_resolve_integration)
     # We still patch SubvigatorWindow to control its instantiation
     mocker.patch('src.main.SubvigatorWindow', return_value=window)
 

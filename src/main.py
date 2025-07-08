@@ -42,10 +42,11 @@ class ApplicationController:
  
     def on_export_reimport_clicked(self):
         print("Export and re-import process started...")
-        success = self.resolve_integration.export_and_reimport_subtitles()
-        if success:
-            print("Export and re-import process completed successfully.")
+        new_track_index = self.resolve_integration.export_and_reimport_subtitles()
+        if new_track_index:
+            print(f"Export and re-import process completed successfully. New track at index {new_track_index}.")
             self.refresh_data() # Refresh UI to show the new track
+            self.window.track_combo.setCurrentIndex(new_track_index - 1)
         else:
             print("Export and re-import process failed.")
 
