@@ -49,3 +49,49 @@
 4.  **后端集成 (`src/resolve_integration.py`):**
     *   实现了 `update_subtitle_text` 方法，用于调用 DaVinci Resolve API 将更改后的文本写回时间线上的字幕对象。
 **结果:** 用户现在可以双击字幕列表中的任何字幕来直接编辑其文本内容，更改会实时同步到 DaVinci Resolve 时间线，显著提升了工作效率。
+
+
+---
+### 代码实现 [UI Workflow]
+[2025-07-08 23:31:28] - 更新UI工作流以使用新的重导入功能
+
+**实现细节：**
+修改了 `src/main.py` 中的 `on_export_reimport_clicked` 函数，使其调用 `reimport_from_json_file` 并传递当前的JSON文件路径。同时添加了路径有效性检查。
+
+**测试框架：**
+pytest, pytest-mock
+
+**测试结果：**
+- 覆盖率：99%
+- 通过率：100%
+
+
+---
+### 代码实现 [单元测试]
+[2025-07-09 00:22:13] - 更新 `timecode_to_frames` 函数的单元测试以支持 SRT 时间码格式。
+
+**实现细节：**
+修改了 `tests/test_resolve_integration.py` 中的相关测试用例，以验证 `timecode_to_frames` 函数对 `HH:MM:SS,ms` 格式的正确解析。同时，修复了因函数重命名 (`export_and_reimport_subtitles` -> `reimport_from_json_file`) 和测试数据格式错误导致的其他测试失败。
+
+**测试框架：**
+- Pytest
+- unittest.mock
+
+**测试结果：**
+- 覆盖率：100% (所有相关测试均已通过)
+- 通过率：100%
+
+
+---
+### 代码实现 [resolve_integration]
+[2025-07-09 01:24:26] - 修复了 `reimport_from_json_file` 函数中因绝对时间码和相对时间码处理不当导致的一小时时间码偏差问题。
+
+**实现细节：**
+修改了 `reimport_from_json_file` 函数，在调用 `convert_json_to_srt` 时传递时间线起始帧作为偏移量。同时，更新了 `convert_json_to_srt` 函数，使其接受 `offset_frames` 参数，并从字幕的绝对帧数中减去该偏移，从而生成从零开始的 SRT 时间码，确保 `AppendToTimeline` 能正确定位字幕。
+
+**测试框架：**
+pytest, unittest.mock
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%

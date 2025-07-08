@@ -6,11 +6,14 @@ import os
 import glob
 
 class TimecodeUtils:
-    def __init__(self, resolve):
+    def __init__(self, resolve=None):
         self.resolve = resolve
-        self.ffi = cffi.FFI()
-        self._define_c_types()
-        self.libavutil = self._load_library()
+        self.ffi = None
+        self.libavutil = None
+        if self.resolve:
+            self.ffi = cffi.FFI()
+            self._define_c_types()
+            self.libavutil = self._load_library()
 
     def _define_c_types(self):
         self.ffi.cdef("""
@@ -35,7 +38,7 @@ class TimecodeUtils:
 
     def _load_library(self):
         if not self.resolve:
-            raise ImportError("Resolve object not provided to TimecodeUtils.")
+            return None
 
         try:
             fu = self.resolve.Fusion()
@@ -138,7 +141,8 @@ class TimecodeUtils:
 
         return timecode_string
 
-    def timecode_to_srt_format(self, frame, frame_rate):
+    @staticmethod
+    def timecode_to_srt_format(frame, frame_rate):
         if frame_rate == 0:
             return "00:00:00,000"
             
@@ -153,5 +157,5 @@ class TimecodeUtils:
 
     def timecode_from_frame_to_ms_format(self, frame, frame_rate):
         """Converts frame number to HH:MM:SS:ms format."""
-        srt_timecode = self.timecode_to_srt_format(frame, frame_rate)
-        return srt_timecode.replace(',', ':')
+        """Converts frame number to HH:MM:SS,ms format."""
+        return self.timecode_to_srt_format(frame, frame_rate)

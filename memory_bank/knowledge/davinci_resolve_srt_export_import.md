@@ -1,53 +1,43 @@
-# DaVinci Resolve 字幕导出与导入技术方案
+# DaVinci Resolve SRT 导出与重导入工作流
 
-## 1. 跨平台临时目录
+## 核心流程
 
-- **库:** Python `tempfile`
-- **方法:** `tempfile.TemporaryDirectory()`
-- **描述:** 使用上下文管理器创建一个临时的、跨平台的目录，该目录在使用完毕后会自动清理。
-- **示例:**
-  ```python
-  import tempfile
-  import os
+当前脚本的核心工作流程围绕着一个临时的 `subtitles.json` 文件，该文件作为UI界面和DaVinci Resolve之间的主要数据交换媒介。
 
-  with tempfile.TemporaryDirectory() as tmpdirname:
-      subtitle_file_path = os.path.join(tmpdirname, "temp_subtitles.srt")
-      # ... 执行导出和导入操作 ...
-  ```
+1.  **导出到JSON**: 当用户在UI中选择一个字幕轨道时，脚本会将该轨道的字幕内容（文本和时间码）导出到 `subtitles.json` 文件。JSON中存储的时间码格式为标准的SRT格式 **`HH:MM:SS,ms`** (时:分:秒,毫秒)。
+2.  **UI编辑**: 用户在界面上对字幕的所有修改都会被实时地保存在内存中，并同步更新到 `subtitles.json` 文件。
+3.  **重导入到Resolve**: 当用户触发“重导入”功能时，脚本会执行一个“JSON -> SRT -> Resolve”的转换流程：
+    a.  读取 `subtitles.json` 文件。
+    b.  将JSON中的数据转换为标准的SRT格式字符串。
+    c.  通过Resolve的API将生成的SRT内容导入到时间线的一个新轨道上。
 
-## 2. DaVinci Resolve 脚本 API
+## 时间码转换详解
 
-### A. 导出SRT字幕（手动实现）
+从JSON到SRT的转换过程中，时间码的处理是一个关键步骤，确保了跨平台的时间精度。
 
-DaVinci Resolve API 不支持直接导出 SRT 文件，需要手动实现。
+### 步骤 1: 时间码字符串 -> 总帧数
 
-- **核心步骤:**
-  1. 获取当前时间线: `project.GetCurrentTimeline()`
-  2. 遍历字幕轨道: `timeline.GetItemListInTrack("subtitle", trackIndex)`
-  3. 对每个字幕项 `TimelineItem`，提取信息：
-     - **开始/结束帧:** `item.GetStart()`, `item.GetEnd()`
-     - **字幕文本:** `item.GetClipProperty()["Text"]` (需要验证属性键)
-  4. 将帧数转换为SRT时间码格式 (`HH:MM:SS,ms`)。
-  5. 按照SRT格式规范写入文件。
+-   **函数**: `timecode_to_frames(tc_str: str, frame_rate: float)`
+-   **位置**: `src/resolve_integration.py`
+-   **输入**: `HH:MM:SS,ms` 格式的时间码字符串（来自 `subtitles.json`）。
+-   **处理**:
+    1.  以逗号 `,` 分割秒和毫秒，再以冒号 `:` 分割时、分、秒。
+    2.  将包括毫秒在内的总时间转换为秒: `总秒数 = (时 * 3600) + (分 * 60) + 秒 + (毫秒 / 1000.0)`
+    3.  根据项目帧率 (`frame_rate`) 计算总帧数并四舍五入: `总帧数 = int(round(总秒数 * 帧率))`
+-   **输出**: 一个代表绝对时间位置的整数（总帧数）。
 
-### B. 导入字幕文件到媒体池
+### 步骤 2: 总帧数 -> SRT时间格式
 
-- **方法:** `MediaPool.ImportMedia(filePath)`
-- **描述:** 将文件导入到当前媒体池，返回一个 `MediaPoolItem` 列表。
+-   **函数**: `TimecodeUtils.timecode_to_srt_format(frame, frame_rate)`
+-   **位置**: `src/timecode_utils.py`
+-   **输入**: 上一步计算出的总帧数。
+-   **处理**:
+    1.  `总秒数 = 总帧数 / 帧率`
+    2.  将包含小数的总秒数分解为时、分、秒和毫秒。
+-   **输出**: `HH:MM:SS,ms` 格式的SRT标准时间字符串。
 
-### C. 创建新的字幕轨道
+### 流程总结
 
-- **方法:** `Timeline.AddTrack("subtitle")`
-- **描述:** 在时间线上添加一个新的字幕轨道。
+`JSON ("HH:MM:SS,ms")` --> `timecode_to_frames()` --> `总帧数` --> `timecode_to_srt_format()` --> `SRT ("HH:MM:SS,ms")`
 
-### D. 添加媒体池项目到时间线
-
-- **方法:** `MediaPool.AppendToTimeline(clipInfo)`
-- **描述:** 将媒体池中的剪辑（`MediaPoolItem`）添加到指定的时间线轨道。
-- **示例:**
-  ```python
-  clip_info = {
-      "mediaPoolItem": subtitle_item,
-      "trackIndex": track_index
-  }
-  media_pool.AppendToTimeline([clip_info])
+这个两步转换过程确保了时间码的精确性，使得生成的SRT文件能够在遵循SRT标准的任何软件中正确显示和同步。

@@ -79,7 +79,7 @@ def test_get_subtitles_with_timecode_success(mock_resolve_api):
     mock_resolve_api["timeline"].GetSetting.side_effect = [24.0, '0'] # frame_rate, drop_frame
     
     integration = ResolveIntegration()
-    integration.tc_utils.timecode_from_frame.side_effect = ["00:00:04:04", "00:00:08:08"]
+    integration.tc_utils.timecode_from_frame_to_ms_format.side_effect = ["00:00:04:04", "00:00:08:08"]
     
     subs = integration.get_subtitles_with_timecode(1)
     assert len(subs) == 1
@@ -305,73 +305,74 @@ def test_get_subtitles_with_timecode_no_tc_utils(mock_resolve_api):
         assert subs == []
         mock_print.assert_called_with("TimecodeUtils not available.")
 
-def test_export_and_reimport_subtitles_no_timeline(mock_resolve_api):
+def test_reimport_from_json_no_timeline(mock_resolve_api):
     """Test re-import process when timeline is not available."""
     mock_resolve_api["project"].GetCurrentTimeline.return_value = None
     integration = ResolveIntegration()
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file("dummy.json")
         assert result is False
         mock_print.assert_called_with("ERROR: No active timeline, project, or timecode utility.")
 
-def test_export_and_reimport_subtitles_no_media_pool(mock_resolve_api):
+def test_reimport_from_json_no_media_pool(mock_resolve_api):
     """Test re-import process when media pool is not available."""
     mock_resolve_api["project"].GetMediaPool.return_value = None
     integration = ResolveIntegration()
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file("dummy.json")
         assert result is False
         mock_print.assert_called_with("ERROR: Could not get Media Pool.")
 
-def test_export_and_reimport_subtitles_no_original_subs(mock_resolve_api):
-    """Test re-import process when there are no subtitles to export."""
+def test_reimport_from_json_no_subs(mock_resolve_api, temp_json_file):
+    """Test re-import process when there are no subtitles to import."""
+    json_path = temp_json_file([])
     integration = ResolveIntegration()
-    integration.get_subtitles_with_timecode = MagicMock(return_value=[])
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file(json_path)
         assert result is False
-        mock_print.assert_called_with("INFO: No subtitles to export.")
+        mock_print.assert_called_with("INFO: No subtitles to import from JSON.")
 
-def test_export_and_reimport_subtitles_import_fails(mock_resolve_api, mocker):
+def test_reimport_from_json_import_fails(mock_resolve_api, temp_json_file, mocker):
     """Test re-import process when SRT import fails."""
-    mocker.patch('builtins.open', mock_open(read_data="srt content"))
-    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory')
+    json_path = temp_json_file([{'start': '00:00:01,000', 'end': '00:00:02,000', 'text': 'test'}])
+    
+    mocker.patch('src.resolve_integration.convert_json_to_srt', return_value="dummy srt content")
     
     integration = ResolveIntegration()
-    integration.get_subtitles_with_timecode = MagicMock(return_value=[{'id': 1, 'in_frame': 10, 'out_frame': 20, 'text': 'test'}])
     mock_resolve_api["project"].GetMediaPool().ImportMedia.return_value = [] # Simulate import failure
     
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file(json_path)
         assert result is False
         mock_print.assert_any_call("ERROR: Failed to import SRT file.")
 
-def test_export_and_reimport_subtitles_append_fails(mock_resolve_api, mocker):
+def test_reimport_from_json_append_fails(mock_resolve_api, temp_json_file, mocker):
     """Test re-import process when appending to timeline fails."""
-    mocker.patch('builtins.open', mock_open(read_data="srt content"))
-    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory')
+    json_path = temp_json_file([{'start': '00:00:01,000', 'end': '00:00:02,000', 'text': 'test'}])
     
+    mocker.patch('src.resolve_integration.convert_json_to_srt', return_value="dummy srt content")
+    mocker.patch('src.resolve_integration.timecode_to_frames', return_value=10)
+
     mock_pool_item = MagicMock()
     mock_resolve_api["project"].GetMediaPool().ImportMedia.return_value = [mock_pool_item]
     mock_resolve_api["project"].GetMediaPool().AppendToTimeline.return_value = False # Simulate append failure
     mock_resolve_api["timeline"].GetTrackCount.return_value = 2 # After AddTrack
 
     integration = ResolveIntegration()
-    integration.get_subtitles_with_timecode = MagicMock(return_value=[{'id': 1, 'in_frame': 0, 'out_frame': 10, 'text': 'test'}])
     
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file(json_path)
         assert result is False
         mock_print.assert_any_call("ERROR: Failed to append clip to the timeline.")
         # Check if tracks are re-enabled on failure
         mock_resolve_api["timeline"].SetTrackEnable.assert_any_call("subtitle", 2, True)
 
-def test_export_and_reimport_subtitles_fatal_exception(mock_resolve_api, mocker):
+def test_reimport_from_json_fatal_exception(mock_resolve_api, mocker):
     """Test re-import process with an unexpected fatal exception."""
-    mocker.patch('src.resolve_integration.tempfile.TemporaryDirectory', side_effect=Exception("Disk is full"))
+    mocker.patch('builtins.open', side_effect=Exception("Disk is full"))
     integration = ResolveIntegration()
     with patch('builtins.print') as mock_print:
-        result = integration.export_and_reimport_subtitles(1)
+        result = integration.reimport_from_json_file("dummy.json")
         assert result is False
         mock_print.assert_any_call("FATAL: An unexpected exception occurred: Disk is full")
 
@@ -419,3 +420,202 @@ def test_update_subtitle_text_item_not_found(mock_resolve_api):
     result = integration.update_subtitle_text({'id': 1, 'track_index': 1, 'in_frame': 123}, "text")
 
     assert result is False
+
+
+import json
+import os
+from src.resolve_integration import convert_json_to_srt, timecode_to_frames
+
+# Fixture to create a temporary JSON file for testing
+@pytest.fixture
+def temp_json_file(tmpdir):
+    def _create_file(data):
+        file_path = tmpdir.join("test_subtitles.json")
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return str(file_path)
+    return _create_file
+
+def test_timecode_to_frames_valid_srt():
+    """Test valid HH:MM:SS,ms format."""
+    assert timecode_to_frames("00:00:01,500", 24.0) == 36
+    assert timecode_to_frames("01:00:00,000", 24.0) == 86400
+    assert timecode_to_frames("00:01:30,500", 30.0) == 2715
+
+@pytest.mark.parametrize("invalid_tc, expected_error_msg", [
+    ("00:00:01:500", "Invalid timecode format. Expected HH:MM:SS,ms."),
+    ("00:01,500", "Invalid timecode format. Expected HH:MM:SS,ms."),
+    ("aa:bb:cc,dd", "Invalid timecode format. Components must be integers.")
+])
+def test_timecode_to_frames_invalid_srt(invalid_tc, expected_error_msg):
+    """Test invalid HH:MM:SS,ms formats."""
+    with pytest.raises(ValueError, match=expected_error_msg):
+        timecode_to_frames(invalid_tc, 24.0)
+
+def test_convert_json_to_srt_success(temp_json_file):
+    """Test successful conversion from a valid JSON file to SRT format."""
+    subtitle_data = [
+        {"index": 1, "start": "00:00:01,000", "end": "00:00:03,500", "text": "First line."},
+        {"index": 2, "start": "00:00:04,000", "end": "00:00:06,000", "text": "Second line."}
+    ]
+    json_path = temp_json_file(subtitle_data)
+    frame_rate = 24.0
+    
+    expected_srt = (
+        "1\n"
+        "00:00:01,000 --> 00:00:03,500\n"
+        "First line.\n\n"
+        "2\n"
+        "00:00:04,000 --> 00:00:06,000\n"
+        "Second line."
+    )
+    
+    result = convert_json_to_srt(json_path, frame_rate)
+    # rstrip to remove trailing newline from the expected result for comparison
+    assert result.strip() == expected_srt.strip()
+
+def test_convert_json_to_srt_file_not_found(capsys):
+    """Test conversion when the JSON file does not exist."""
+    result = convert_json_to_srt("non_existent_file.json", 24.0)
+    assert result == ""
+    captured = capsys.readouterr()
+    assert "Error reading or parsing JSON file" in captured.out
+
+def test_convert_json_to_srt_empty_file(temp_json_file, capsys):
+    """Test conversion with an empty JSON file."""
+    json_path = temp_json_file([])
+    result = convert_json_to_srt(json_path, 24.0)
+    assert result == ""
+    # No error should be printed for an empty list
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+def test_convert_json_to_srt_malformed_json(tmpdir, capsys):
+    """Test conversion with a malformed JSON file."""
+    file_path = tmpdir.join("malformed.json")
+    with open(file_path, 'w') as f:
+        f.write("{'bad': 'json',}") # Invalid JSON
+    
+    result = convert_json_to_srt(str(file_path), 24.0)
+    assert result == ""
+    captured = capsys.readouterr()
+    assert "Error reading or parsing JSON file" in captured.out
+
+def test_convert_json_to_srt_missing_keys(temp_json_file, capsys):
+    """Test conversion with a JSON entry missing required keys."""
+    # Entry at index 1 is missing the 'end' key
+    subtitle_data = [
+        {"index": 1, "start": "00:00:01,000", "end": "00:00:03,000", "text": "Good one."},
+        {"index": 2, "start": "00:00:04,000", "text": "Bad one."}
+    ]
+    json_path = temp_json_file(subtitle_data)
+    
+    result = convert_json_to_srt(json_path, 24.0)
+    
+    # Only the valid entry should be in the output
+    expected_srt = (
+        "1\n"
+        "00:00:01,000 --> 00:00:03,000\n"
+        "Good one."
+    )
+    
+    assert result.strip() == expected_srt.strip()
+    captured = capsys.readouterr()
+    assert "Skipping invalid subtitle entry at index 1" in captured.out
+
+def test_convert_json_to_srt_invalid_timecode(temp_json_file, capsys):
+    """Test conversion with an invalid timecode format in the JSON."""
+    subtitle_data = [
+        {"index": 1, "start": "00:00:01,000", "end": "00:00:03,000", "text": "Valid"},
+        {"index": 2, "start": "invalid-timecode", "end": "00:00:06,000", "text": "Invalid"}
+    ]
+    json_path = temp_json_file(subtitle_data)
+    
+    result = convert_json_to_srt(json_path, 24.0)
+    
+    expected_srt = (
+        "1\n"
+        "00:00:01,000 --> 00:00:03,000\n"
+        "Valid"
+    )
+
+    assert result.strip() == expected_srt.strip()
+    captured = capsys.readouterr()
+    assert "Skipping invalid subtitle entry at index 1" in captured.out
+
+
+def test_reimport_from_json_with_one_hour_offset(mock_resolve_api, temp_json_file, mocker):
+    """
+    Test re-importing subtitles on a timeline that starts at 01:00:00:00.
+    This test ensures that the timecode is not double-offset.
+    """
+    # 1. Arrange
+    frame_rate = 24.0
+    one_hour_in_frames = int(3600 * frame_rate)
+    
+    # Mock timeline settings to simulate a 1-hour start time
+    mock_timeline = mock_resolve_api["timeline"]
+    mock_timeline.GetSetting.return_value = frame_rate
+    mock_timeline.GetStartFrame.return_value = one_hour_in_frames
+    mock_timeline.GetStartTimecode.return_value = "01:00:00:00"
+
+    # Mock Media Pool and other necessary components
+    mock_media_pool = mock_resolve_api["project"].GetMediaPool()
+    mock_pool_item = MagicMock()
+    mock_media_pool.ImportMedia.return_value = [mock_pool_item]
+    mock_media_pool.AppendToTimeline.return_value = True
+
+    # Mock TimecodeUtils methods
+    integration = ResolveIntegration()
+    # Ensure tc_utils is mocked properly
+    if not hasattr(integration, 'tc_utils') or integration.tc_utils is None:
+        integration.tc_utils = MagicMock()
+
+    # This is the absolute frame number we expect for a 1-hour 10-second timecode
+    expected_absolute_frame = one_hour_in_frames + int(10 * frame_rate)
+    
+    def mock_tc_from_frame(frame, rate, drop_frame):
+        # This function should convert an absolute frame number to a timecode string
+        total_seconds = frame / rate
+        h = int(total_seconds / 3600)
+        m = int((total_seconds % 3600) / 60)
+        s = int(total_seconds % 60)
+        f = int(frame % rate)
+        return f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
+
+    integration.tc_utils.timecode_from_frame.side_effect = mock_tc_from_frame
+    
+    # Create a JSON file with a subtitle starting at 1 hour and 10 seconds
+    json_data = [{
+        "index": 1,
+        "start": "01:00:10,000",
+        "end": "01:00:12,000",
+        "text": "Test subtitle with offset"
+    }]
+    json_path = temp_json_file(json_data)
+
+    # 2. Act
+    result = integration.reimport_from_json_file(json_path)
+
+    # 3. Assert
+    assert result is True, "Re-import should succeed"
+    
+    # Verify that the playhead is set to the correct, non-offset timecode
+    # The `timecode_to_frames` in the SUT will calculate the absolute frame number
+    # and `timecode_from_frame` will convert it back to the correct TC string.
+    # We expect the final timecode to match the original start time from the JSON.
+    mock_timeline.SetCurrentTimecode.assert_called_once()
+    called_timecode = mock_timeline.SetCurrentTimecode.call_args[0][0]
+    
+    # The expected timecode should be exactly what was in the JSON file.
+    # The mock for timecode_from_frame will produce HH:MM:SS:FF format.
+    expected_timecode_str = "01:00:10:00"
+    assert called_timecode == expected_timecode_str
+
+    # Verify that the SRT clip was created and appended correctly
+    mock_media_pool.ImportMedia.assert_called_once()
+    mock_media_pool.AppendToTimeline.assert_called_once_with(mock_pool_item)
+    
+    # Verify a new track was created and isolated
+    mock_timeline.AddTrack.assert_called_with("subtitle")
+    

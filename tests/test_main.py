@@ -208,30 +208,32 @@ def test_main(MockedApplicationController):
 def test_on_track_changed_valid_index(app_setup):
     """Test on_track_changed when a valid track is selected."""
     controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
     
     app_setup["resolve_integration"].export_subtitles_to_json.return_value = "some/path.json"
-    subs = [{'id': 1, 'in_frame': 100}]
+    subs = [{'id': 1, 'in_frame': 100, 'raw_obj': 'mock_obj'}]
     app_setup["resolve_integration"].get_subtitles_with_timecode.return_value = subs
-    mock_populate = mocker.patch.object(controller.window, 'populate_table')
     
-    controller.on_track_changed(1)
-    
-    app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(2)
-    mock_populate.assert_called_once_with(json_path="some/path.json")
+    with patch.object(controller.window, 'populate_table') as mock_populate:
+        controller.on_track_changed(1)
+        
+        app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(2)
+        # The raw_obj should be stripped before passing to populate_table
+        expected_subs_data = [{'id': 1, 'in_frame': 100}]
+        mock_populate.assert_called_once_with(subs_data=expected_subs_data)
+        assert controller.raw_obj_map[1] == 'mock_obj'
 
 def test_on_track_changed_no_subtitles(app_setup):
     """Test on_track_changed when the selected track has no subtitles."""
     controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-
-    app_setup["resolve_integration"].export_subtitles_to_json.return_value = None
-    mock_populate = mocker.patch.object(controller.window, 'populate_table')
-
-    controller.on_track_changed(0)
     
-    app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(1)
-    mock_populate.assert_called_once_with(json_path=None)
+    app_setup["resolve_integration"].export_subtitles_to_json.return_value = "some/path.json"
+    app_setup["resolve_integration"].get_subtitles_with_timecode.return_value = []
+    
+    with patch.object(controller.window, 'populate_table') as mock_populate:
+        controller.on_track_changed(0)
+        
+        app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(1)
+        mock_populate.assert_called_once_with(subs_data=[])
 
 def test_on_track_changed_at_index_zero_should_return(app_setup):
     """Test that on_track_changed returns early if current index is invalid."""
@@ -299,42 +301,55 @@ def test_main_entry_point(mock_main_func):
         # We will just accept this line as uncovered.
         pass
 
-def test_on_item_changed_successful_update(app_setup, mocker):
-    """Test that subtitle text is updated when an item is changed."""
+def test_on_item_changed_successful_update(app_setup):
+    """Test that subtitle text is updated and saved to JSON."""
     controller = app_setup["controller"]
     mock_item = MagicMock()
     mock_item.text.side_effect = ["1", "New Subtitle Text"]
     controller.window.subtitles_data = [{'id': 1, 'text': "Old Text"}]
-    app_setup["resolve_integration"].update_subtitle_text.return_value = True
-    mock_print = mocker.patch('builtins.print')
-
-    controller.on_item_changed(mock_item, 1)
-
-    app_setup["resolve_integration"].update_subtitle_text.assert_called_once()
-    mock_print.assert_not_called()
+    
+    with patch.object(controller, '_save_changes_to_json') as mock_save:
+        controller.on_item_changed(mock_item, 1)
+        mock_save.assert_called_once()
+        assert controller.window.subtitles_data[0]['text'] == "New Subtitle Text"
 
 def test_on_item_changed_exception_on_update(app_setup, mocker):
     """Test exception handling during subtitle update."""
     controller = app_setup["controller"]
     mock_item = MagicMock()
-    mock_item.text.side_effect = ["1", "New Text"]
-    controller.window.subtitles_data = [{'id': 1}]
-    app_setup["resolve_integration"].update_subtitle_text.return_value = False
+    # Make the item text an invalid integer to cause a ValueError
+    mock_item.text.side_effect = ["not-an-int", "New Text"]
     mock_print = mocker.patch('builtins.print')
 
     controller.on_item_changed(mock_item, 1)
 
-    mock_print.assert_called_with("Failed to update subtitle in Resolve.")
+    mock_print.assert_called_once()
+    # Check that the error message contains "Failed to update subtitle"
+    assert "Failed to update subtitle" in mock_print.call_args[0][0]
 
-def test_on_export_reimport_clicked(app_setup):
-    """Test the export and re-import functionality."""
+def test_on_export_reimport_clicked_with_valid_path(app_setup, mocker):
+    """Test the re-import functionality with a valid JSON path."""
     controller = app_setup["controller"]
+    mocker.patch.object(controller, 'refresh_data')
     
-    # Mock the currently selected track index
-    with patch.object(controller.window.track_combo, 'currentIndex', return_value=0):
-        controller.on_export_reimport_clicked()
-        
-    app_setup["resolve_integration"].export_and_reimport_subtitles.assert_called_once_with(1)
+    controller.current_json_path = "/fake/path.json"
+    controller.on_export_reimport_clicked()
+    
+    app_setup["resolve_integration"].reimport_from_json_file.assert_called_once_with("/fake/path.json")
+    controller.refresh_data.assert_called_once()
+
+def test_on_export_reimport_clicked_no_path(app_setup, mocker):
+    """Test re-import fails when no JSON path is set."""
+    controller = app_setup["controller"]
+    mocker.patch.object(controller, 'refresh_data')
+    mock_print = mocker.patch('builtins.print')
+
+    controller.current_json_path = None
+    controller.on_export_reimport_clicked()
+
+    mock_print.assert_called_once_with("Error: No JSON file path is set, please select a track first.")
+    app_setup["resolve_integration"].reimport_from_json_file.assert_not_called()
+    controller.refresh_data.assert_not_called()
 
 def test_on_item_clicked_index_error(app_setup, mocker):
     """Test IndexError handling in on_item_clicked."""
@@ -347,3 +362,66 @@ def test_on_item_clicked_index_error(app_setup, mocker):
     controller.on_item_clicked(mock_item, 0)
 
     mock_print.assert_called_with("Failed to get subtitle object for ID 99")
+
+def test_on_item_double_clicked_editable_column(app_setup):
+    """Test that double-clicking the 'Subtitle' column makes it editable."""
+    controller = app_setup["controller"]
+    mock_item = MagicMock()
+    with patch.object(controller.window.tree, 'editItem') as mock_edit:
+        # Column 1 is the 'Subtitle' column and should be editable
+        controller.on_item_double_clicked(mock_item, 1)
+        mock_edit.assert_called_once_with(mock_item, 1)
+
+def test_on_item_double_clicked_non_editable_column(app_setup):
+    """Test that double-clicking other columns does not trigger editing."""
+    controller = app_setup["controller"]
+    mock_item = MagicMock()
+    with patch.object(controller.window.tree, 'editItem') as mock_edit:
+        # Columns other than 1 should not be editable
+        controller.on_item_double_clicked(mock_item, 0)
+        mock_edit.assert_not_called()
+        controller.on_item_double_clicked(mock_item, 2)
+        mock_edit.assert_not_called()
+
+@patch('builtins.open', new_callable=MagicMock)
+@patch('json.dump')
+def test_save_changes_to_json_success(mock_json_dump, mock_open, app_setup):
+    """Test successful saving of subtitle changes to a JSON file."""
+    controller = app_setup["controller"]
+    controller.current_json_path = "/fake/subs.json"
+    controller.window.subtitles_data = [
+        {'id': 1, 'in_timecode': '00:00:01:00', 'out_timecode': '00:00:02:00', 'text': 'Hello'}
+    ]
+    
+    controller._save_changes_to_json()
+    
+    mock_open.assert_called_once_with("/fake/subs.json", 'w', encoding='utf-8')
+    expected_data = [{
+        "index": 1,
+        "start": "00:00:01:00",
+        "end": "00:00:02:00",
+        "text": "Hello"
+    }]
+    mock_json_dump.assert_called_once_with(expected_data, mock_open().__enter__(), ensure_ascii=False, indent=2)
+
+@patch('builtins.print')
+def test_save_changes_to_json_no_path(mock_print, app_setup):
+    """Test that saving fails if no JSON path is set."""
+    controller = app_setup["controller"]
+    controller.current_json_path = None
+    
+    controller._save_changes_to_json()
+    
+    mock_print.assert_called_once_with("Error: No current JSON file path is set. Cannot save.")
+
+@patch('builtins.open', side_effect=IOError("Disk full"))
+@patch('builtins.print')
+def test_save_changes_to_json_io_error(mock_print, mock_open, app_setup):
+    """Test IO error handling when saving to JSON."""
+    controller = app_setup["controller"]
+    controller.current_json_path = "/fake/subs.json"
+    controller.window.subtitles_data = [{'id': 1}]
+
+    controller._save_changes_to_json()
+    
+    mock_print.assert_called_once_with("Failed to auto-save subtitle changes: Disk full")

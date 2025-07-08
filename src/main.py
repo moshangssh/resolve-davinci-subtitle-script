@@ -45,10 +45,11 @@ class ApplicationController:
             self.resolve_integration.set_active_subtitle_track(track_index)
  
     def on_export_reimport_clicked(self):
-        current_track = self.window.track_combo.currentIndex()
-        if current_track >= 0:
-            self.resolve_integration.export_and_reimport_subtitles(current_track + 1)
-            self.refresh_data()
+        if self.current_json_path is None:
+            print("Error: No JSON file path is set, please select a track first.")
+            return
+        self.resolve_integration.reimport_from_json_file(self.current_json_path)
+        self.refresh_data()
 
     def on_track_changed(self, index):
         track_index = index + 1
