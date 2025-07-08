@@ -71,8 +71,8 @@ class ResolveIntegration:
                 'text': sub_obj.GetName(),
                 'in_frame': in_frame,
                 'out_frame': out_frame,
-                'in_timecode': self.tc_utils.timecode_from_frame(in_frame, frame_rate, drop_frame),
-                'out_timecode': self.tc_utils.timecode_from_frame(out_frame, frame_rate, drop_frame),
+                'in_timecode': self.tc_utils.timecode_from_frame_to_ms_format(in_frame, frame_rate),
+                'out_timecode': self.tc_utils.timecode_from_frame_to_ms_format(out_frame, frame_rate),
                 'raw_obj': sub_obj,
             })
         return subtitle_list

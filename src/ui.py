@@ -61,7 +61,6 @@ class SubvigatorWindow(QMainWindow):
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
         self.export_reimport_button = QPushButton("导出并重导入")
-
     def _setup_layouts(self):
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_label)

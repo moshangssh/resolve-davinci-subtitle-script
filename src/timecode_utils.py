@@ -150,3 +150,8 @@ class TimecodeUtils:
         milliseconds = int((total_seconds - int(total_seconds)) * 1000)
         
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    def timecode_from_frame_to_ms_format(self, frame, frame_rate):
+        """Converts frame number to HH:MM:SS:ms format."""
+        srt_timecode = self.timecode_to_srt_format(frame, frame_rate)
+        return srt_timecode.replace(',', ':')

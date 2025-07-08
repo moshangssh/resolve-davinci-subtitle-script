@@ -26,6 +26,8 @@ class ApplicationController:
 
         self.window = SubvigatorWindow(self.resolve_integration)
         self.window.subtitles_data = []
+        self.current_json_path = None
+        self.raw_obj_map = {}
         
     def connect_signals(self):
         self.window.refresh_button.clicked.connect(self.refresh_data)
@@ -55,13 +57,21 @@ class ApplicationController:
 
         # Export subtitles to JSON and get the path
         json_path = self.resolve_integration.export_subtitles_to_json(track_index)
+        self.current_json_path = json_path
         
         # We still need the original data for the timecode jump functionality
-        subs_data = self.resolve_integration.get_subtitles_with_timecode(track_index)
-        self.window.subtitles_data = subs_data # Store for later use
+        subs_data_with_raw = self.resolve_integration.get_subtitles_with_timecode(track_index)
+        
+        # Separate serializable data from non-serializable raw objects
+        self.window.subtitles_data = []
+        self.raw_obj_map = {}
+        if subs_data_with_raw:
+            for sub in subs_data_with_raw:
+                self.raw_obj_map[sub['id']] = sub.pop('raw_obj', None)
+                self.window.subtitles_data.append(sub)
 
-        # Populate the table from the JSON file
-        self.window.populate_table(json_path=json_path)
+        # Populate the table directly from the now-clean in-memory data
+        self.window.populate_table(subs_data=self.window.subtitles_data)
         self.filter_subtitles()
 
     def refresh_data(self):
@@ -128,11 +138,34 @@ class ApplicationController:
                 
                 if sub_obj:
                     sub_obj['text'] = new_text
-                    if not self.resolve_integration.update_subtitle_text(sub_obj, new_text):
-                        print("Failed to update subtitle in Resolve.")
+                    self._save_changes_to_json()
+                    # if not self.resolve_integration.update_subtitle_text(sub_obj, new_text):
+                    #     print("Failed to update subtitle in Resolve.")
 
             except Exception as e:
                 print(f"Failed to update subtitle: {e}")
+
+    def _save_changes_to_json(self):
+        if not self.current_json_path:
+            print("Error: No current JSON file path is set. Cannot save.")
+            return
+
+        try:
+            # Format the data to match the expected JSON structure before saving
+            output_data = []
+            for sub in self.window.subtitles_data:
+                output_data.append({
+                    "index": sub.get('id'),
+                    "start": sub.get('in_timecode'),
+                    "end": sub.get('out_timecode'),
+                    "text": sub.get('text')
+                })
+
+            with open(self.current_json_path, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+        except (IOError, TypeError) as e:
+            print(f"Failed to auto-save subtitle changes: {e}")
 
     def run(self):
         self.connect_signals()
