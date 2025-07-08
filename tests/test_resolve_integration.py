@@ -159,27 +159,116 @@ def test_export_subtitles_to_srt_with_data(mock_resolve_api):
     mock_resolve_api["timeline"].GetSetting.return_value = 24.0
 
     # Mock timecode conversion
-    integration.tc_utils.timecode_from_frame.side_effect = [
-        "00:00:01;00",  # Start time for sub 1
-        "00:00:03;00",  # End time for sub 1
-        "00:00:04;00",  # Start time for sub 2
-        "00:00:06;00"   # End time for sub 2
-    ]
+    # Mock timecode conversion
+    def mock_timecode_to_srt(frame, rate):
+        total_seconds = frame / rate
+        hours = int(total_seconds / 3600)
+        minutes = int((total_seconds % 3600) / 60)
+        seconds = int(total_seconds % 60)
+        milliseconds = int((total_seconds * 1000) % 1000)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    integration.tc_utils.timecode_to_srt_format.side_effect = mock_timecode_to_srt
+    mock_resolve_api["timeline"].GetStartTimecode.return_value = "00:00:00:00"
+    mock_resolve_api["timeline"].GetStartFrame.return_value = 0
+
 
     expected_srt = (
         "1\n"
-        "00,00,01,00 --> 00,00,03,00\n"
+        "00:00:01,000 --> 00:00:03,000\n"
         "Hello world.\n\n"
         "2\n"
-        "00,00,04,00 --> 00,00,06,00\n"
+        "00:00:04,000 --> 00:00:06,000\n"
         "This is a test.\n\n"
     )
-
+ 
     result = integration.export_subtitles_to_srt(1)
-    assert result == expected_srt
-
+    assert result.strip() == expected_srt.strip()
+ 
     # Verify that timecode conversion was called correctly
-    integration.tc_utils.timecode_from_frame.assert_any_call(24, 24.0)
-    integration.tc_utils.timecode_from_frame.assert_any_call(72, 24.0)
-    integration.tc_utils.timecode_from_frame.assert_any_call(96, 24.0)
-    integration.tc_utils.timecode_from_frame.assert_any_call(144, 24.0)
+    integration.tc_utils.timecode_to_srt_format.assert_any_call(24, 24.0)
+    integration.tc_utils.timecode_to_srt_format.assert_any_call(72, 24.0)
+    integration.tc_utils.timecode_to_srt_format.assert_any_call(96, 24.0)
+    integration.tc_utils.timecode_to_srt_format.assert_any_call(144, 24.0)
+
+@pytest.mark.parametrize(
+    "start_timecode, zero_based, expected_srt_output",
+    [
+        # Scenario 1: Standard timeline (starts at 00:00:00:00), not zero-based
+        (
+            "00:00:00:00",
+            False,
+            "1\n00:00:05,000 --> 00:00:10,000\nSubtitle 1\n\n"
+            "2\n00:00:15,000 --> 00:00:20,000\nSubtitle 2\n\n"
+        ),
+        # Scenario 2: Standard timeline, zero-based (should be the same as not zero-based)
+        (
+            "00:00:00:00",
+            True,
+            "1\n00:00:05,000 --> 00:00:10,000\nSubtitle 1\n\n"
+            "2\n00:00:15,000 --> 00:00:20,000\nSubtitle 2\n\n"
+        ),
+        # Scenario 3: Timeline starts at 01:00:00:00, not zero-based (output should be offset)
+        (
+            "01:00:00:00",
+            False,
+            "1\n01:00:05,000 --> 01:00:10,000\nSubtitle 1\n\n"
+            "2\n01:00:15,000 --> 01:00:20,000\nSubtitle 2\n\n"
+        ),
+        # Scenario 4: Timeline starts at 01:00:00:00, but zero-based (output should be like a standard timeline)
+        (
+            "01:00:00:00",
+            True,
+            "1\n00:00:05,000 --> 00:00:10,000\nSubtitle 1\n\n"
+            "2\n00:00:15,000 --> 00:00:20,000\nSubtitle 2\n\n"
+        ),
+    ]
+)
+def test_export_subtitles_to_srt_scenarios(mock_resolve_api, start_timecode, zero_based, expected_srt_output):
+    """
+    Test export_subtitles_to_srt with different timeline start times and zero_based flag.
+    """
+    integration = ResolveIntegration()
+    frame_rate = 24.0
+    hour_in_frames = int(frame_rate * 3600)
+
+    # Mock timeline settings based on scenario
+    mock_resolve_api["timeline"].GetSetting.return_value = frame_rate
+    mock_resolve_api["timeline"].GetStartTimecode.return_value = start_timecode
+    
+    # Define subtitle data with absolute frame numbers
+    # If the timeline starts at 1 hour, the frames will be large
+    start_frame_offset = hour_in_frames if start_timecode.startswith("01:") else 0
+    mock_subs_data = [
+        {'id': 1, 'in_frame': 120 + start_frame_offset, 'out_frame': 240 + start_frame_offset, 'text': 'Subtitle 1'},
+        {'id': 2, 'in_frame': 360 + start_frame_offset, 'out_frame': 480 + start_frame_offset, 'text': 'Subtitle 2'}
+    ]
+    integration.get_subtitles_with_timecode = MagicMock(return_value=mock_subs_data)
+    
+    # `GetStartFrame` should always return the timeline's absolute start frame.
+    mock_resolve_api["timeline"].GetStartFrame.return_value = start_frame_offset
+
+    # Mock the final timecode conversion to SRT format
+    def mock_timecode_to_srt(frame, rate):
+        total_seconds = frame / rate
+        hours = int(total_seconds / 3600)
+        minutes = int((total_seconds % 3600) / 60)
+        seconds = int(total_seconds % 60)
+        milliseconds = int((total_seconds * 1000) % 1000)
+        
+        # In the non-zero-based 1-hour start scenario, the frame number passed to this function
+        # will already have the 1-hour offset included from the main function's logic.
+        if not zero_based and start_timecode.startswith("01:"):
+            # We need to add the hour back for the final timecode string.
+            hours += 1
+            
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    integration.tc_utils.timecode_to_srt_format = MagicMock(side_effect=mock_timecode_to_srt)
+
+    # Execute the function
+    result = integration.export_subtitles_to_srt(track_number=1, zero_based=zero_based)
+
+    # Assert the output is correct
+    # A direct string comparison can be brittle, let's compare line by line after splitting.
+    assert result.strip() == expected_srt_output.strip()

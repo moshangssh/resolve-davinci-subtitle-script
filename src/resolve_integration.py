@@ -118,14 +118,35 @@ class ResolveIntegration:
         if not subtitles:
             return ""
 
-        timeline_start_frame = self.timeline.GetStartFrame() if zero_based else 0
+        frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
+        timeline_start_timecode = self.timeline.GetStartTimecode()
         
+        # 检查时间线是否从01:00:00:00开始，并计算偏移量
+        offset_frames = 0
+        is_one_hour_start = timeline_start_timecode.startswith("01:")
+        timeline_start_frame = self.timeline.GetStartFrame()
+        
+        # 如果是基于0的导出，起始帧就是时间线的绝对起始帧
+        # 如果不是基于0的导出，并且时间线不是从1小时开始，那么我们认为它是从0开始的
+        base_frame = timeline_start_frame if zero_based else 0
+        
+        # 如果不是基于0的导出，并且时间线是从1小时开始的，那么基准帧就是1小时的帧数
+        if not zero_based and is_one_hour_start:
+            base_frame = int(frame_rate * 3600)
+
+
         srt_content = ""
         for i, sub in enumerate(subtitles):
-            frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
-            
-            start_frame = sub['in_frame'] - timeline_start_frame
-            end_frame = sub['out_frame'] - timeline_start_frame
+            # 从绝对帧号中减去基准帧号，得到相对帧号
+            start_frame = sub['in_frame'] - (0 if zero_based and is_one_hour_start else base_frame)
+            end_frame = sub['out_frame'] - (0 if zero_based and is_one_hour_start else base_frame)
+
+            # 如果是基于0的导出，但时间线是从1小时开始的，需要额外减去1小时的偏移
+            if zero_based and is_one_hour_start:
+                offset_frames = int(frame_rate * 3600)
+                start_frame -= offset_frames
+                end_frame -= offset_frames
+
 
             start_time = self.tc_utils.timecode_to_srt_format(start_frame, frame_rate)
             end_time = self.tc_utils.timecode_to_srt_format(end_frame, frame_rate)
