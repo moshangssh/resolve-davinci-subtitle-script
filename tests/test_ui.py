@@ -262,9 +262,10 @@ def test_replace_current_and_find_next(populated_window):
 
     # Replace it
     win.replace_current()
-    
-    # Check that the text was replaced
-    assert win.tree.topLevelItem(0).text(1) == 'Hello planet, this is a test.'
+
+    # Check that the text was replaced with HTML
+    expected_html = 'Hello <font color="red"><s>world</s></font><font color="blue">planet</font>, this is a test.'
+    assert win.tree.topLevelItem(0).text(1) == expected_html
     
     # Check that it moved to the next item
     assert win.tree.currentItem().text(1) == 'Another test line with world.'
@@ -277,8 +278,14 @@ def test_replace_all_simple(populated_window):
     
     win.replace_all()
     
-    assert win.tree.topLevelItem(0).text(1) == 'Hello world, this is a sample.'
-    assert win.tree.topLevelItem(1).text(1) == 'Another sample line with world.'
+    delete_style = '<font color="red"><s>test</s></font>'
+    insert_style = '<font color="blue">sample</font>'
+    
+    expected1 = f'Hello world, this is a {delete_style}{insert_style}.'
+    expected2 = f'Another {delete_style}{insert_style} line with world.'
+    
+    assert win.tree.topLevelItem(0).text(1) == expected1
+    assert win.tree.topLevelItem(1).text(1) == expected2
     assert win.tree.topLevelItem(2).text(1) == 'No matching text here.' # Should be unchanged
 
 def test_find_and_replace_no_find_text(populated_window):
@@ -345,3 +352,130 @@ def test_find_text_filters_tree_view_live(populated_window, qtbot):
     # Clear the text, all items should be visible again
     win.find_text.clear()
     assert not win.tree.topLevelItem(2).isHidden()
+
+# --- HTML Diff and Data Integrity Tests ---
+
+def test_generate_diff_html(window):
+    """Test the _generate_diff_html method directly."""
+    style_config_replace = {
+        'replace': '<B>{text}</B>',
+        'delete': '<S>{text}</S>',
+        'insert': '<U>{text}</U>',
+    }
+    style_config_edit = {
+        'replace': '<font color="green">{text}</font>',
+        'insert': '<font color="green">{text}</font>',
+        'delete': ''
+    }
+
+    # Test replacement
+    original = "hello world"
+    new = "hello there"
+    expected_replace = "hello <S>wo</S><B>the</B>r<S>ld</S><B>e</B>"
+    assert window._generate_diff_html(original, new, style_config_replace) == expected_replace
+
+    # Test insertion
+    original = "hello"
+    new = "hello world"
+    expected_insert = 'hello<font color="green"> world</font>'
+    assert window._generate_diff_html(original, new, style_config_edit) == expected_insert
+
+    # Test deletion
+    original = "hello world"
+    new = "hello"
+    expected_delete = "hello" # Deletes are invisible in edit mode
+    assert window._generate_diff_html(original, new, style_config_edit) == expected_delete
+    
+    # Test complex change
+    original = "the quick brown fox"
+    new = "the slow brown cat"
+    expected_complex = "the <S>quick</S><B>slow</B> brown <S>fox</S><B>cat</B>"
+    # This will fail with the current difflib, but it shows the ideal output.
+    # The fix is in the calling function, not here. So we test the actual output.
+    actual_complex = window._generate_diff_html(original, new, style_config_replace)
+    expected_difflib_complex = 'the <S>quick</S><B>slow</B> brown <S>fox</S><B>cat</B>'
+    assert actual_complex == expected_difflib_complex
+
+def test_on_subtitle_edited_shows_green_highlight(populated_window, qtbot):
+    """
+    Test that manually editing a subtitle generates a green diff and preserves UserRole.
+    """
+    win = populated_window
+    tree = win.tree
+    item = tree.topLevelItem(0)
+    original_text = "Hello world, this is a test."
+    
+    # Ensure UserRole has the original plain text
+    assert item.data(1, Qt.UserRole) == original_text
+    
+    # Simulate editing the item
+    edited_text = "Hello WORLD, this is a test."
+    
+    # The delegate workflow: editor provides plain text, setData triggers itemChanged.
+    # We directly call on_subtitle_edited to simulate the signal's effect.
+    item.setText(1, edited_text) # This would be done by the delegate
+    win.on_subtitle_edited(item, 1)
+
+    # The displayed text should now be HTML with a green highlight
+    expected_html = 'Hello <font color="green">WORLD</font>, this is a test.'
+    assert item.text(1) == expected_html
+    
+    # The UserRole data should remain the original, unmodified plain text
+    assert item.data(1, Qt.UserRole) == original_text
+
+def test_replace_current_shows_red_and_blue_highlight(populated_window, qtbot):
+    """
+    Test that 'Replace' generates a red/blue diff and preserves UserRole.
+    """
+    win = populated_window
+    tree = win.tree
+    item = tree.topLevelItem(0)
+    original_text = "Hello world, this is a test."
+    
+    win.find_text.setText("world")
+    win.replace_text.setText("planet")
+    
+    # Find and select the item
+    tree.setCurrentItem(item)
+    
+    # Perform the replacement
+    win.replace_current()
+    
+    # The displayed text should be HTML with red strikethrough and blue highlight
+    delete_style = '<font color="red"><s>world</s></font>'
+    replace_style = '<font color="blue">planet</font>'
+    expected_html = f"Hello {delete_style}{replace_style}, this is a test."
+    assert item.text(1) == expected_html
+
+    # The UserRole data should still be the original plain text for future diffs
+    assert item.data(1, Qt.UserRole) == original_text
+
+def test_replace_all_shows_red_and_blue_highlight(populated_window):
+    """
+    Test that 'Replace All' generates correct red/blue diffs and preserves UserRole.
+    """
+    win = populated_window
+    win.find_text.setText("world")
+    win.replace_text.setText("planet")
+
+    item1 = win.tree.topLevelItem(0)
+    item2 = win.tree.topLevelItem(1)
+    original_text1 = item1.data(1, Qt.UserRole)
+    original_text2 = item2.data(1, Qt.UserRole)
+
+    win.replace_all()
+
+    # Check first item
+    delete_style = '<font color="red"><s>world</s></font>'
+    replace_style = '<font color="blue">planet</font>'
+    expected_html1 = f"Hello {delete_style}{replace_style}, this is a test."
+    assert item1.text(1) == expected_html1
+    assert item1.data(1, Qt.UserRole) == original_text1
+
+    # Check second item
+    expected_html2 = f"Another test line with {delete_style}{replace_style}."
+    assert item2.text(1) == expected_html2
+    assert item2.data(1, Qt.UserRole) == original_text2
+
+    # Check that an item without the text is untouched
+    assert win.tree.topLevelItem(2).text(1) == "No matching text here."

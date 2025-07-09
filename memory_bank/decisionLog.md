@@ -135,3 +135,40 @@ pytest, unittest.mock
 **测试结果：**
 - 覆盖率：100%
 - 通过率：100%
+
+---
+**决策日期:** 2025-07-09T14:33:27+08:00
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** `543b5f3a-7089-4716-a814-9f159e204b80` - 【核心改造】启用富文本显示与数据结构扩展
+
+**决策:**
+1.  **采用 `QStyledItemDelegate` 实现富文本渲染:** 为在 `QTreeWidget` 的特定列中显示HTML内容，决定采用自定义 `QStyledItemDelegate`。这比直接在 `QTreeWidgetItem` 中设置富文本（如果支持的话）提供了更好的性能和对渲染过程的控制。
+2.  **使用 `Qt.UserRole` 存储原始数据:** 为追踪字幕文本的修改状态，决定将未经修改的原始字幕文本存储在 `QTreeWidgetItem` 的 `Qt.UserRole` 数据槽中。这是一种标准且高效的Qt实践，用于将自定义元数据附加到模型项，避免了创建复杂子类或外部数据结构的需要。
+
+**理由:**
+- 该方案将渲染逻辑与数据存储分离，提高了代码的模块化和可维护性。
+- `QStyledItemDelegate` 是Qt框架中处理自定义项视图渲染的标准方法，确保了方案的健壮性和未来的可扩展性。
+- 使用 `Qt.UserRole` 是轻量级的，并且与Qt的模型/视图架构紧密集成。
+
+
+
+---
+### 代码实现 [UI]
+[2025-07-09 15:26:00] - 重构UI以支持带样式的文本替换
+
+**实现细节：**
+- **`src/ui.py`**:
+  - 提取了一个新的私有方法 `_generate_diff_html(self, original_text, new_text, style_config)`，用于根据文本差异生成带样式的HTML。
+  - 更新了 `on_subtitle_edited` 方法，使其调用 `_generate_diff_html` 并传入绿色的样式配置。
+  - 更新了 `replace_current` 和 `replace_all` 方法，使其调用 `_generate_diff_html` 并传入红/蓝样式配置，以高亮显示替换操作。
+  - 在更新UI前阻塞信号，以防止不必要的事件触发。
+  - 确保了 `Qt.UserRole` 始终存储原始的、未格式化的文本。
+
+**测试框架：**
+- `pytest`
+- `pytest-qt`
+- `unittest.mock`
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%

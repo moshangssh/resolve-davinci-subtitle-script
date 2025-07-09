@@ -13,10 +13,55 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QTreeWidgetItemIterator,
+    QStyledItemDelegate,
+    QStyle,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextDocument
 import re
+import difflib
 from src.resolve_integration import ResolveIntegration
+
+class HtmlDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super(HtmlDelegate, self).__init__(parent)
+        self.doc = QTextDocument(self)
+
+    def paint(self, painter, option, index):
+        options = option
+        self.initStyleOption(options, index)
+
+        painter.save()
+
+        self.doc.setHtml(options.text)
+
+        # Remove the original text to avoid drawing it twice.
+        options.text = ""
+        # Draw the background and selection state.
+        style = options.widget.style()
+        style.drawControl(QStyle.CE_ItemViewItem, options, painter)
+
+        # Adjust the rectangle for drawing the document.
+        # This is a basic adjustment; more complex scenarios might need more tuning.
+        textRect = style.subElementRect(QStyle.SE_ItemViewItemText, options)
+        painter.translate(textRect.topLeft())
+        painter.setClipRect(textRect.translated(-textRect.topLeft()))
+        
+        self.doc.drawContents(painter)
+
+        painter.restore()
+
+    def setEditorData(self, editor, index):
+        # When editing starts, provide the plain text (from UserRole if available, otherwise from DisplayRole)
+        # and ensure it's clean of HTML.
+        text = index.model().data(index, Qt.DisplayRole)
+        clean_text = re.sub(r'<[^>]+>', '', text)
+        editor.setText(clean_text)
+
+    def setModelData(self, editor, model, index):
+        # When editing finishes, get the plain text from the editor
+        # and set it as the item's text. This will trigger itemChanged.
+        model.setData(index, editor.text(), Qt.EditRole)
 
 class NumericTreeWidgetItem(QTreeWidgetItem):
     def __lt__(self, other):
@@ -46,6 +91,7 @@ class SubvigatorWindow(QMainWindow):
         self.find_next_button.clicked.connect(self.find_next)
         self.replace_button.clicked.connect(self.replace_current)
         self.replace_all_button.clicked.connect(self.replace_all)
+        self.tree.itemChanged.connect(self.on_subtitle_edited)
 
     def _create_widgets(self):
         self.search_label = QLabel("Filter:")
@@ -62,6 +108,8 @@ class SubvigatorWindow(QMainWindow):
         self.tree.setColumnWidth(2, 80)  # In
         self.tree.setColumnWidth(3, 80)  # Out
         self.tree.setColumnHidden(4, True) # StartFrame
+        self.html_delegate = HtmlDelegate(self.tree)
+        self.tree.setItemDelegateForColumn(1, self.html_delegate)
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
@@ -109,18 +157,21 @@ class SubvigatorWindow(QMainWindow):
         self.main_layout.addLayout(bottom_layout)
 
     def populate_table(self, subs_data=None, json_path=None, hide=False):
+        self.tree.blockSignals(True)
         self.tree.clear()
         
         if json_path:
             subs_data = self.load_subtitles_from_json(json_path)
 
         if not subs_data:
+            self.tree.blockSignals(False)
             return
 
         for sub in subs_data:
             item = NumericTreeWidgetItem(self.tree)
             item.setText(0, str(sub.get('index', sub.get('id', ''))))
             item.setText(1, sub.get('text', ''))
+            item.setData(1, Qt.UserRole, sub.get('text', ''))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setText(2, sub.get('start', sub.get('in_timecode', '')))
             item.setText(3, sub.get('end', sub.get('out_timecode', '')))
@@ -132,6 +183,7 @@ class SubvigatorWindow(QMainWindow):
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
+        self.tree.blockSignals(False)
 
     def load_subtitles_from_json(self, file_path):
         import json
@@ -248,11 +300,24 @@ class SubvigatorWindow(QMainWindow):
             return
 
         selected_item = self.tree.currentItem()
-        if selected_item and find_text in selected_item.text(1):
-            current_text = selected_item.text(1)
-            new_text = current_text.replace(find_text, replace_text, 1) # Replace only the first occurrence
-            selected_item.setText(1, new_text)
-        self.find_next() # Move to the next match
+        if selected_item:
+            original_text = selected_item.data(1, Qt.UserRole)
+            if find_text in original_text:
+                # Manually construct HTML for predictable highlighting
+                delete_html = f'<font color="red"><s>{find_text}</s></font>'
+                insert_html = f'<font color="blue">{replace_text}</font>'
+                # Use html.escape for the parts we are not styling
+                import html
+                escaped_original = html.escape(original_text)
+                escaped_find = html.escape(find_text)
+
+                # This is a simplified approach. A more robust solution would handle multiple occurrences.
+                html_text = escaped_original.replace(escaped_find, delete_html + insert_html, 1)
+
+                self.tree.blockSignals(True)
+                selected_item.setText(1, html_text)
+                self.tree.blockSignals(False)
+        self.find_next()
 
     def replace_all(self):
         find_text = self.find_text.text()
@@ -260,9 +325,60 @@ class SubvigatorWindow(QMainWindow):
         if not find_text:
             return
 
+        self.tree.blockSignals(True)
         root = self.tree.invisibleRootItem()
         for i in range(root.childCount()):
             item = root.child(i)
-            if find_text in item.text(1):
-                new_text = item.text(1).replace(find_text, replace_text)
-                item.setText(1, new_text)
+            original_text = item.data(1, Qt.UserRole)
+            if find_text in original_text:
+                # Manually construct HTML for predictable highlighting
+                delete_html = f'<font color="red"><s>{find_text}</s></font>'
+                insert_html = f'<font color="blue">{replace_text}</font>'
+                import html
+                escaped_original = html.escape(original_text)
+                escaped_find = html.escape(find_text)
+                
+                html_text = escaped_original.replace(escaped_find, delete_html + insert_html)
+                item.setText(1, html_text)
+        self.tree.blockSignals(False)
+
+    def _generate_diff_html(self, original_text, new_text, style_config):
+        html_text = ""
+        s = difflib.SequenceMatcher(None, original_text, new_text)
+        for tag, i1, i2, j1, j2 in s.get_opcodes():
+            if tag == 'equal':
+                html_text += new_text[j1:j2]
+            elif tag == 'replace':
+                html_text += style_config['delete'].format(text=original_text[i1:i2])
+                html_text += style_config['replace'].format(text=new_text[j1:j2])
+            elif tag == 'delete':
+                html_text += style_config['delete'].format(text=original_text[i1:i2])
+            elif tag == 'insert':
+                html_text += style_config['insert'].format(text=new_text[j1:j2])
+        return html_text
+
+    def on_subtitle_edited(self, item, column):
+        if column != 1:
+            return
+
+        new_text = item.text(1)
+        clean_new_text = re.sub(r'<[^>]+>', '', new_text)
+        original_text = item.data(1, Qt.UserRole)
+
+        if original_text is None:
+            original_text = ""
+
+        if clean_new_text == original_text:
+            return
+        
+        style_config = {
+            'replace': '<font color="green">{text}</font>',
+            'insert': '<font color="green">{text}</font>',
+            'delete': '' # No visible representation for deleted text in this case
+        }
+        
+        html_text = self._generate_diff_html(original_text, clean_new_text, style_config)
+
+        self.tree.blockSignals(True)
+        item.setText(1, html_text)
+        self.tree.blockSignals(False)
