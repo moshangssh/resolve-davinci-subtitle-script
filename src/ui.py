@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextDocument
 import re
 import difflib
-from src.resolve_integration import ResolveIntegration
+from resolve_integration import ResolveIntegration
 
 class HtmlDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -154,12 +154,9 @@ class SubvigatorWindow(QMainWindow):
         bottom_layout.addWidget(self.export_reimport_button)
         self.main_layout.addLayout(bottom_layout)
 
-    def populate_table(self, subs_data=None, json_path=None, hide=False):
+    def populate_table(self, subs_data, hide=False):
         self.tree.blockSignals(True)
         self.tree.clear()
-        
-        if json_path:
-            subs_data = self.load_subtitles_from_json(json_path)
 
         if not subs_data:
             self.tree.blockSignals(False)
@@ -179,32 +176,6 @@ class SubvigatorWindow(QMainWindow):
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
         self.tree.blockSignals(False)
-
-    def load_subtitles_from_json(self, file_path):
-        import json
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error loading subtitles from JSON: {e}")
-            return []
-
-    def export_subtitles(self):
-        if not hasattr(self, 'subtitles_data') or not self.subtitles_data:
-            print("No subtitle data to export.")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save Subtitles", "", "JSON (*.json)")
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                import json
-                json.dump(self.subtitles_data, f, ensure_ascii=False, indent=2)
-        except (IOError, TypeError) as e:
-            print(f"Failed to export subtitles: {e}")
 
     def on_search_text_changed(self):
         self.filter_tree(self.search_text.text())

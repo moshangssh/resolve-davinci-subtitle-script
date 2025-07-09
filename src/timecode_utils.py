@@ -159,3 +159,26 @@ class TimecodeUtils:
         """Converts frame number to HH:MM:SS:ms format."""
         """Converts frame number to HH:MM:SS,ms format."""
         return self.timecode_to_srt_format(frame, frame_rate)
+
+    @staticmethod
+    def timecode_to_frames(tc_str: str, frame_rate: float) -> int:
+        """Converts HH:MM:SS,ms timecode string to total frames."""
+        main_parts = tc_str.split(',')
+        if len(main_parts) != 2:
+            raise ValueError("Invalid timecode format. Expected HH:MM:SS,ms.")
+            
+        time_parts = main_parts[0].split(':')
+        if len(time_parts) != 3:
+            raise ValueError("Invalid timecode format. Expected HH:MM:SS,ms.")
+
+        try:
+            h, m, s = [int(p) for p in time_parts]
+            ms = int(main_parts[1])
+            
+            # Convert total time to seconds, including milliseconds
+            total_seconds = (h * 3600) + (m * 60) + s + (ms / 1000.0)
+            # Calculate total frames and round to the nearest frame
+            total_frames = int(round(total_seconds * frame_rate))
+            return total_frames
+        except ValueError:
+            raise ValueError("Invalid timecode format. Components must be integers.")
