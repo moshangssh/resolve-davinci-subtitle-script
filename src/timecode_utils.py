@@ -155,11 +155,6 @@ class TimecodeUtils:
         
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
-    def timecode_from_frame_to_ms_format(self, frame, frame_rate):
-        """Converts frame number to HH:MM:SS:ms format."""
-        """Converts frame number to HH:MM:SS,ms format."""
-        return self.timecode_to_srt_format(frame, frame_rate)
-
     @staticmethod
     def timecode_to_frames(tc_str: str, frame_rate: float) -> int:
         """Converts HH:MM:SS,ms timecode string to total frames."""

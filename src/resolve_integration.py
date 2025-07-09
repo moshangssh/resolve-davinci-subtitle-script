@@ -3,7 +3,6 @@ import json
 import tempfile
 import os
 from timecode_utils import TimecodeUtils
-from format_converter import SubtitleFormatConverter
 class ResolveIntegration:
     def __init__(self):
         self.resolve = self._get_resolve_instance()
@@ -75,8 +74,8 @@ class ResolveIntegration:
                 'text': sub_obj.GetName(),
                 'in_frame': in_frame,
                 'out_frame': out_frame,
-                'in_timecode': self.tc_utils.timecode_from_frame_to_ms_format(in_frame, frame_rate),
-                'out_timecode': self.tc_utils.timecode_from_frame_to_ms_format(out_frame, frame_rate),
+                'in_timecode': self.tc_utils.timecode_to_srt_format(in_frame, frame_rate),
+                'out_timecode': self.tc_utils.timecode_to_srt_format(out_frame, frame_rate),
                 'raw_obj': sub_obj,
             })
         return subtitle_list
@@ -193,7 +192,7 @@ class ResolveIntegration:
 
             frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
             timeline_start_frame = self.timeline.GetStartFrame()
-            srt_content = SubtitleFormatConverter.convert_json_to_srt(json_path, frame_rate, offset_frames=timeline_start_frame)
+            srt_content = self._convert_json_to_srt(json_path, frame_rate, offset_frames=timeline_start_frame)
 
             # Use a named temporary file to securely handle the SRT content
             with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.srt', encoding='utf-8') as tmp_srt_file:
@@ -252,18 +251,38 @@ class ResolveIntegration:
             print(f"LOG: CRITICAL: An unexpected exception occurred during re-import: {e}")
             return False
 
-    def update_subtitle_text(self, subtitle_object, new_text):
+    def _convert_json_to_srt(self, json_path: str, frame_rate: float, offset_frames: int = 0) -> str:
         """
-        Updates the text of a given subtitle object.
+        Reads a JSON file with subtitle data and converts it into an SRT formatted string.
         """
-        if not self.timeline or not subtitle_object:
-            return False
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                subtitles = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error reading or parsing JSON file: {e}")
+            return ""
 
-        # Find the timeline item that corresponds to the subtitle_object's ID
-        items = self.timeline.GetItemListInTrack("subtitle", subtitle_object['track_index'])
-        for item in items:
-            if item.GetStart() == subtitle_object['in_frame']:
-                item.SetClipColor('Orange')
-                return item.UpdateText(new_text)
+        srt_content = []
+        for i, sub in enumerate(subtitles):
+            try:
+                # Convert to frames and then apply the offset to make it zero-based
+                start_frames = TimecodeUtils.timecode_to_frames(sub['start'], frame_rate) - offset_frames
+                end_frames = TimecodeUtils.timecode_to_frames(sub['end'], frame_rate) - offset_frames
 
-        return False
+                # Ensure frames are not negative after offset
+                start_frames = max(0, start_frames)
+                end_frames = max(0, end_frames)
+
+                start_time = TimecodeUtils.timecode_to_srt_format(start_frames, frame_rate)
+                end_time = TimecodeUtils.timecode_to_srt_format(end_frames, frame_rate)
+
+                srt_content.append(f"{i + 1}")
+                srt_content.append(f"{start_time} --> {end_time}")
+                srt_content.append(sub['text'])
+                srt_content.append("")  # Add a blank line after each entry
+            except (KeyError, ValueError) as e:
+                print(f"Skipping invalid subtitle entry at index {i}: {e}")
+                continue
+                
+        return "\n".join(srt_content)
+

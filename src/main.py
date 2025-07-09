@@ -24,9 +24,8 @@ class ApplicationController:
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.window.tree.itemChanged.connect(self.on_item_changed)
-        self.window.search_text.returnPressed.connect(self.filter_subtitles)
+        self.window.search_text.returnPressed.connect(lambda: self.window.filter_tree(self.window.search_text.text()))
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
-        self.window.track_combo.currentIndexChanged.connect(self.on_subtitle_track_selected)
         self.window.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
         self.window.replace_button.clicked.connect(
             lambda: self.handle_replace_current()
@@ -35,10 +34,6 @@ class ApplicationController:
             lambda: self.handle_replace_all()
         )
  
-    def on_subtitle_track_selected(self, index):
-        if index > -1:
-            track_index = index + 1
-            self.resolve_integration.set_active_subtitle_track(track_index)
  
     def on_export_reimport_clicked(self):
         if self.subtitle_manager.current_json_path is None:
@@ -49,13 +44,14 @@ class ApplicationController:
         self.refresh_data()
  
     def on_track_changed(self, index):
-        track_index = index + 1
-        if track_index == 0:
+        if index < 0:
             return
- 
+
+        track_index = index + 1
+        self.resolve_integration.set_active_subtitle_track(track_index)
         subtitles = self.subtitle_manager.load_subtitles(track_index)
         self.window.populate_table(subs_data=subtitles)
-        self.filter_subtitles()
+        self.window.filter_tree(self.window.search_text.text())
 
     def refresh_data(self):
         timeline_info = self.resolve_integration.get_current_timeline_info()
@@ -96,16 +92,6 @@ class ApplicationController:
         except (ValueError, IndexError):
             print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id_str}")
 
-    def filter_subtitles(self):
-        search_text = self.window.search_text.text()
-        if not search_text:
-            for i in range(self.window.tree.topLevelItemCount()):
-                self.window.tree.topLevelItem(i).setHidden(False)
-            return
-
-        for i in range(self.window.tree.topLevelItemCount()):
-            item = self.window.tree.topLevelItem(i)
-            item.setHidden(search_text.lower() not in item.text(3).lower())
 
     def on_item_double_clicked(self, item, column):
         if column == 1: # Only allow editing the 'Subtitle' column
