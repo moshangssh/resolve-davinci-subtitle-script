@@ -1,3 +1,4 @@
+import re
 import json
 
 class SubtitleManager:
@@ -81,11 +82,12 @@ class SubtitleManager:
         try:
             output_data = []
             for sub in self.subtitles_data:
+                clean_text = re.sub(r'<[^>]+>', '', sub.get('text', ''))
                 output_data.append({
                     "index": sub.get('id'),
                     "start": sub.get('in_timecode'),
                     "end": sub.get('out_timecode'),
-                    "text": sub.get('text')
+                    "text": clean_text
                 })
 
             with open(self.current_json_path, 'w', encoding='utf-8') as f:
