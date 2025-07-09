@@ -31,8 +31,10 @@ def test_timecode_utils_init_success(mock_resolve, mock_cffi):
 
 def test_timecode_utils_init_no_resolve():
     """Test initialization without a Resolve object."""
-    with pytest.raises(ImportError):
-        TimecodeUtils(None)
+    utils = TimecodeUtils(None)
+    assert utils.resolve is None
+    assert utils.ffi is None
+    assert utils.libavutil is None
 
 def test_timecode_from_frame_success(mock_resolve, mock_cffi):
     """Test timecode_from_frame."""

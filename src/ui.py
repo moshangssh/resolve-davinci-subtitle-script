@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QCheckBox,
     QFileDialog,
+    QTreeWidgetItemIterator,
 )
 from PySide6.QtCore import Qt
 import re
@@ -40,7 +41,11 @@ class SubvigatorWindow(QMainWindow):
 
         self._create_widgets()
         self._setup_layouts()
-        self.search_text.textChanged.connect(self.filter_tree)
+        self.search_text.textChanged.connect(self.on_search_text_changed)
+        self.find_text.textChanged.connect(self.on_find_text_changed)
+        self.find_next_button.clicked.connect(self.find_next)
+        self.replace_button.clicked.connect(self.replace_current)
+        self.replace_all_button.clicked.connect(self.replace_all)
 
     def _create_widgets(self):
         self.search_label = QLabel("Filter:")
@@ -61,12 +66,38 @@ class SubvigatorWindow(QMainWindow):
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
         self.export_reimport_button = QPushButton("导出并重导入")
+
+        # Find and Replace widgets
+        self.find_label = QLabel("Find:")
+        self.find_text = QLineEdit()
+        self.find_text.setPlaceholderText("Find Text")
+        self.replace_label = QLabel("Replace:")
+        self.replace_text = QLineEdit()
+        self.replace_text.setPlaceholderText("Replace With")
+        self.find_next_button = QPushButton("Find Next")
+        self.replace_button = QPushButton("Replace")
+        self.replace_all_button = QPushButton("Replace All")
+
     def _setup_layouts(self):
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_text)
         search_layout.addWidget(self.search_type_combo)
         self.main_layout.addLayout(search_layout)
+
+        find_replace_layout = QHBoxLayout()
+        find_replace_layout.addWidget(self.find_label)
+        find_replace_layout.addWidget(self.find_text)
+        find_replace_layout.addWidget(self.replace_label)
+        find_replace_layout.addWidget(self.replace_text)
+        self.main_layout.addLayout(find_replace_layout)
+
+        find_replace_buttons_layout = QHBoxLayout()
+        find_replace_buttons_layout.addWidget(self.find_next_button)
+        find_replace_buttons_layout.addWidget(self.replace_button)
+        find_replace_buttons_layout.addWidget(self.replace_all_button)
+        self.main_layout.addLayout(find_replace_buttons_layout)
+
 
         self.main_layout.addWidget(self.tree)
 
@@ -128,8 +159,13 @@ class SubvigatorWindow(QMainWindow):
         except (IOError, TypeError) as e:
             print(f"Failed to export subtitles: {e}")
 
-    def filter_tree(self):
-        filter_text = self.search_text.text()
+    def on_search_text_changed(self):
+        self.filter_tree(self.search_text.text())
+
+    def on_find_text_changed(self):
+        self.filter_tree(self.find_text.text())
+
+    def filter_tree(self, filter_text):
         filter_type = self.search_type_combo.currentText()
         root = self.tree.invisibleRootItem()
 
@@ -161,3 +197,72 @@ class SubvigatorWindow(QMainWindow):
                     matches = True # Or some other safe default
 
             item.setHidden(not matches)
+
+    def find_next(self):
+        find_text = self.find_text.text()
+        if not find_text:
+            return
+
+        start_item = self.tree.currentItem()
+
+        item_iterator = QTreeWidgetItemIterator(self.tree, QTreeWidgetItemIterator.All)
+        
+        # If a start_item is selected, move the iterator to it before starting the search.
+        if start_item:
+            while item_iterator.value():
+                if item_iterator.value() == start_item:
+                    # Move to the next item to start the search from there
+                    item_iterator += 1
+                    break
+                item_iterator += 1
+        
+        # Start search from the current iterator position
+
+        while item_iterator.value():
+            item = item_iterator.value()
+            if find_text in item.text(1):
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                return
+            item_iterator += 1
+        
+        # If we reached the end, wrap around and search from the beginning
+        item_iterator = QTreeWidgetItemIterator(self.tree, QTreeWidgetItemIterator.All)
+        while item_iterator.value() and item_iterator.value() != start_item:
+            item = item_iterator.value()
+            if find_text in item.text(1):
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                return
+            item_iterator += 1
+        # Check the start item itself if we've wrapped
+        if start_item and find_text in start_item.text(1) and self.tree.currentItem() != start_item:
+             self.tree.setCurrentItem(start_item)
+             self.tree.scrollToItem(start_item)
+
+
+    def replace_current(self):
+        find_text = self.find_text.text()
+        replace_text = self.replace_text.text()
+        if not find_text:
+            return
+
+        selected_item = self.tree.currentItem()
+        if selected_item and find_text in selected_item.text(1):
+            current_text = selected_item.text(1)
+            new_text = current_text.replace(find_text, replace_text, 1) # Replace only the first occurrence
+            selected_item.setText(1, new_text)
+        self.find_next() # Move to the next match
+
+    def replace_all(self):
+        find_text = self.find_text.text()
+        replace_text = self.replace_text.text()
+        if not find_text:
+            return
+
+        root = self.tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if find_text in item.text(1):
+                new_text = item.text(1).replace(find_text, replace_text)
+                item.setText(1, new_text)

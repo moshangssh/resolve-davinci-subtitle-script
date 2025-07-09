@@ -95,3 +95,43 @@ pytest, unittest.mock
 **测试结果：**
 - 覆盖率：100%
 - 通过率：100%
+
+---
+### 代码实现 [UI]
+[2025-07-09 13:51:46] - 实现查找和替换功能
+
+**实现细节:**
+- **`src/ui.py`**:
+  - 在 `_create_widgets` 方法中添加了 `find_text`, `replace_text` (QLineEdit) 和 `find_button`, `replace_button`, `replace_all_button` (QPushButton)。
+  - 在 `_setup_layouts` 方法中创建了一个新的 `QHBoxLayout` 来容纳这些新的查找/替换控件，并将其添加到主布局中。
+  - 创建了 `find_next`, `replace_current`, `replace_all` 三个新的方法来处理按钮点击事件。
+  - 将新按钮的 `clicked` 信号连接到这些新的处理器方法。
+- **`tests/test_ui.py`**:
+  - 添加了新的测试用例来验证查找和替换功能的正确性，包括查找下一个、替换当前和全部替换的场景。
+
+**测试框架:**
+- `pytest`
+- `pytest-qt`
+- `unittest.mock`
+
+**测试结果:**
+- 覆盖率：95%
+- 通过率：100%
+
+
+---
+### 代码实现 [UI]
+[2025-07-09 14:14] - 为“查找”输入框增加了实时筛选功能，与“筛选”框保持一致。
+
+**实现细节：**
+- 重构了 `filter_tree` 函数，使其接受一个文本参数，实现了逻辑复用。
+- 创建了 `on_search_text_changed` 和 `on_find_text_changed` 两个新的信号处理器，分别处理两个输入框的 `textChanged` 信号。
+- 更新了 `__init__` 中的信号连接，将 `search_text` 和 `find_text` 输入框的 `textChanged` 信号连接到新的处理器。
+
+**测试框架：**
+- PyTest
+- PySide6
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%
