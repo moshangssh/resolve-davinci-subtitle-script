@@ -38,6 +38,19 @@ class ApplicationController:
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
         self.window.track_combo.currentIndexChanged.connect(self.on_subtitle_track_selected)
         self.window.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
+        self.window.replace_button.clicked.connect(
+            lambda: self.handle_replace_current(
+                int(self.window.tree.currentItem().text(0)),
+                self.window.find_text.text(),
+                self.window.replace_text.text()
+            ) if self.window.tree.currentItem() else None
+        )
+        self.window.replace_all_button.clicked.connect(
+            lambda: self.handle_replace_all(
+                self.window.find_text.text(),
+                self.window.replace_text.text()
+            )
+        )
  
     def on_subtitle_track_selected(self, index):
         if index > -1:
@@ -145,6 +158,38 @@ class ApplicationController:
 
             except Exception as e:
                 print(f"Failed to update subtitle: {e}")
+
+    def handle_replace_current(self, item_id, find_text, replace_text):
+        """Handles replacing the text of a single subtitle item."""
+        if not find_text:
+            return
+        sub_obj = next((s for s in self.window.subtitles_data if s['id'] == item_id), None)
+        if sub_obj:
+            original_text = sub_obj['text']
+            new_text = original_text.replace(find_text, replace_text, 1)
+            if original_text != new_text:
+                sub_obj['text'] = new_text
+                self._save_changes_to_json()
+                self.window.update_item_for_replace(item_id, original_text, new_text)
+                self.window.find_next()
+
+    def handle_replace_all(self, find_text, replace_text):
+        """Handles replacing text across all subtitle items."""
+        if not find_text:
+            return
+        
+        # Create a list of changes before applying them
+        changes = []
+        for sub_obj in self.window.subtitles_data:
+            original_text = sub_obj['text']
+            new_text = original_text.replace(find_text, replace_text)
+            if original_text != new_text:
+                changes.append({'id': sub_obj['id'], 'old': original_text, 'new': new_text})
+                sub_obj['text'] = new_text # Update the data model
+        
+        if changes:
+            self._save_changes_to_json()
+            self.window.update_all_items_for_replace(changes)
 
     def _save_changes_to_json(self):
         if not self.current_json_path:

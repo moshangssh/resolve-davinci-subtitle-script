@@ -89,8 +89,6 @@ class SubvigatorWindow(QMainWindow):
         self.search_text.textChanged.connect(self.on_search_text_changed)
         self.find_text.textChanged.connect(self.on_find_text_changed)
         self.find_next_button.clicked.connect(self.find_next)
-        self.replace_button.clicked.connect(self.replace_current)
-        self.replace_all_button.clicked.connect(self.replace_all)
         self.tree.itemChanged.connect(self.on_subtitle_edited)
 
     def _create_widgets(self):
@@ -170,16 +168,13 @@ class SubvigatorWindow(QMainWindow):
         for sub in subs_data:
             item = NumericTreeWidgetItem(self.tree)
             item.setText(0, str(sub.get('index', sub.get('id', ''))))
-            item.setText(1, sub.get('text', ''))
-            item.setData(1, Qt.UserRole, sub.get('text', ''))
+            text = sub.get('text', '')
+            item.setText(1, text)
+            item.setData(1, Qt.UserRole, text)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setText(2, sub.get('start', sub.get('in_timecode', '')))
             item.setText(3, sub.get('end', sub.get('out_timecode', '')))
-            # The original 'in_frame' is not in the JSON, so we may need to adjust
-            # how we handle jumping to timecode if that's still a feature.
-            # For now, let's store something, or leave it empty.
-            # If the original object is needed, the design must be reconsidered.
-            item.setText(4, str(sub.get('in_frame', ''))) # Keep for now for compatibility
+            item.setText(4, str(sub.get('in_frame', '')))
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
@@ -293,54 +288,6 @@ class SubvigatorWindow(QMainWindow):
              self.tree.scrollToItem(start_item)
 
 
-    def replace_current(self):
-        find_text = self.find_text.text()
-        replace_text = self.replace_text.text()
-        if not find_text:
-            return
-
-        selected_item = self.tree.currentItem()
-        if selected_item:
-            original_text = selected_item.data(1, Qt.UserRole)
-            if find_text in original_text:
-                # Manually construct HTML for predictable highlighting
-                delete_html = f'<font color="red"><s>{find_text}</s></font>'
-                insert_html = f'<font color="blue">{replace_text}</font>'
-                # Use html.escape for the parts we are not styling
-                import html
-                escaped_original = html.escape(original_text)
-                escaped_find = html.escape(find_text)
-
-                # This is a simplified approach. A more robust solution would handle multiple occurrences.
-                html_text = escaped_original.replace(escaped_find, delete_html + insert_html, 1)
-
-                self.tree.blockSignals(True)
-                selected_item.setText(1, html_text)
-                self.tree.blockSignals(False)
-        self.find_next()
-
-    def replace_all(self):
-        find_text = self.find_text.text()
-        replace_text = self.replace_text.text()
-        if not find_text:
-            return
-
-        self.tree.blockSignals(True)
-        root = self.tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            item = root.child(i)
-            original_text = item.data(1, Qt.UserRole)
-            if find_text in original_text:
-                # Manually construct HTML for predictable highlighting
-                delete_html = f'<font color="red"><s>{find_text}</s></font>'
-                insert_html = f'<font color="blue">{replace_text}</font>'
-                import html
-                escaped_original = html.escape(original_text)
-                escaped_find = html.escape(find_text)
-                
-                html_text = escaped_original.replace(escaped_find, delete_html + insert_html)
-                item.setText(1, html_text)
-        self.tree.blockSignals(False)
 
     def _generate_diff_html(self, original_text, new_text, style_config):
         html_text = ""
@@ -381,4 +328,46 @@ class SubvigatorWindow(QMainWindow):
 
         self.tree.blockSignals(True)
         item.setText(1, html_text)
+        self.tree.blockSignals(False)
+
+    def find_item_by_id(self, item_id):
+        """Finds a QTreeWidgetItem by its ID in the first column."""
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if item.text(0) == str(item_id):
+                return item
+        return None
+
+    def update_item_for_replace(self, item_id, original_text, new_text):
+        """Updates a single item's text with diff highlighting."""
+        item = self.find_item_by_id(item_id)
+        if not item:
+            return
+        
+        diff_html = self._generate_diff_html(original_text, new_text, {
+             'delete': '<font color="red"><s>{text}</s></font>',
+             'replace': '<font color="blue">{text}</font>',
+             'insert': '<font color="blue">{text}</font>',
+        })
+
+        self.tree.blockSignals(True)
+        item.setText(1, diff_html)
+        item.setData(1, Qt.UserRole, new_text) # Update the user role with the new clean text
+        self.tree.blockSignals(False)
+        self.tree.setCurrentItem(item)
+
+
+    def update_all_items_for_replace(self, changes):
+        """Updates all changed items with diff highlighting."""
+        self.tree.blockSignals(True)
+        for change in changes:
+            item = self.find_item_by_id(change['id'])
+            if item:
+                diff_html = self._generate_diff_html(change['old'], change['new'], {
+                    'delete': '<font color="red"><s>{text}</s></font>',
+                    'replace': '<font color="blue">{text}</font>',
+                    'insert': '<font color="blue">{text}</font>',
+                })
+                item.setText(1, diff_html)
+                item.setData(1, Qt.UserRole, change['new'])
         self.tree.blockSignals(False)
