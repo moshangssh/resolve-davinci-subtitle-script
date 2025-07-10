@@ -184,3 +184,10 @@ pytest, unittest.mock
 
 **理由:**
 用户报告，在UI中编辑后带有绿色高亮（通过HTML `<font>` 标签实现）的字幕，在导出并重新导入到达芬奇后，仍然显示为绿色。这是因为HTML标签被错误地写入了JSON文件。为了解决这个问题，必须在数据持久化层（保存到文件时）将显示逻辑（HTML标签）与实际数据（纯文本）分离。通过在保存前使用正则表达式 `re.sub(r'<[^>]+>', '', text)` 清理文本，可以确保只有纯净的数据被保存，同时不影响UI层面的富文本高亮显示。这个决策精准地在问题的根源——数据持久化阶段——解决了问题，且对系统其他部分的影响最小。
+
+---
+**Decision:** Implement auto-clearing of find/replace input fields after a successful 'Replace All' operation.
+**Date:** 2025-07-10
+**Rationale:** Improve user experience by removing the need for manual clearing of input fields after a bulk replacement. The change is minor, non-disruptive, and aligns with the goal of a more efficient UI.
+**Implementation:** Added `self.window.find_text.clear()` and `self.window.replace_text.clear()` to the `handle_replace_all` method in `src/main.py` within the `if changes:` block.
+---

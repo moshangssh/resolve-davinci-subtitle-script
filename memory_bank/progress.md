@@ -328,3 +328,13 @@
 - **完成者:** `code-developer` (由 `NexusCore` 协调)
 - **任务描述:** 修改了 `src/subtitle_manager.py` 的 `_save_changes_to_json` 方法，在将字幕数据写入JSON文件前，使用正则表达式移除了所有HTML标签，确保了导出到DaVinci Resolve的字幕是纯文本。
 - **耗时:** (约 15 分钟)
+
+---
+**Task Name:** 在替换后清空查找和替换输入框
+**Description:** 在用户点击‘全部替换’按钮并成功执行替换操作后，自动清空‘查找’和‘替换’输入框的内容。
+**Completion Date:** 2025-07-10
+**Completed By:** code-developer
+**Role:** 💻 代码开发者
+**Status:** 成功
+**Time Spent:** N/A
+---

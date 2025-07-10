@@ -138,6 +138,8 @@ class ApplicationController:
         
         if changes:
             self.window.update_all_items_for_replace(changes)
+            self.window.find_text.clear()
+            self.window.replace_text.clear()
 
     def run(self):
         self.connect_signals()
