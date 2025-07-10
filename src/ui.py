@@ -309,9 +309,9 @@ class SubvigatorWindow(QMainWindow):
                 return item
         return None
 
-    def update_item_for_replace(self, item_id, original_text, new_text):
+    def update_item_for_replace(self, item_index, original_text, new_text):
         """Updates a single item's text with diff highlighting."""
-        item = self.find_item_by_id(item_id)
+        item = self.find_item_by_id(item_index)
         if not item:
             return
         
@@ -332,7 +332,7 @@ class SubvigatorWindow(QMainWindow):
         """Updates all changed items with diff highlighting."""
         self.tree.blockSignals(True)
         for change in changes:
-            item = self.find_item_by_id(change['id'])
+            item = self.find_item_by_id(change['index'])
             if item:
                 diff_html = self._generate_diff_html(change['old'], change['new'], {
                     'delete': '<font color="red"><s>{text}</s></font>',

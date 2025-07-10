@@ -20,7 +20,7 @@ class ApplicationController:
         self.window = SubvigatorWindow(self.resolve_integration)
         
     def connect_signals(self):
-        self.window.refresh_button.clicked.connect(self.refresh_data)
+        self.window.refresh_button.clicked.connect(self.on_refresh_button_clicked)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.window.tree.itemChanged.connect(self.on_item_changed)
@@ -53,7 +53,8 @@ class ApplicationController:
         self.window.populate_table(subs_data=subtitles)
         self.window.filter_tree(self.window.search_text.text())
 
-    def refresh_data(self):
+    def on_refresh_button_clicked(self):
+        self.resolve_integration.cache_all_subtitle_tracks()
         timeline_info = self.resolve_integration.get_current_timeline_info()
         if not timeline_info:
             return
@@ -66,6 +67,9 @@ class ApplicationController:
         if self.window.track_combo.count() > 0:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
+    def refresh_data(self):
+        pass
+
     def on_item_clicked(self, item, column):
         try:
             item_id_str = item.text(0)
@@ -75,20 +79,18 @@ class ApplicationController:
             item_id = int(item_id_str)
 
             # Find the corresponding subtitle object from the stored data
-            sub_obj = next((s for s in self.subtitle_manager.get_subtitles() if s['id'] == item_id), None)
+            sub_obj = next((s for s in self.subtitle_manager.get_subtitles() if s['index'] == item_id), None)
  
             if sub_obj:
-                start_frame = sub_obj['in_frame']
-                timeline_info = self.resolve_integration.get_current_timeline_info()
-                frame_rate = timeline_info['frame_rate']
-                drop_frame = self.resolve_integration.timeline.GetSetting('timelineDropFrame') == '1'
-
-                timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
-
+                timecode = sub_obj['start']
                 self.resolve_integration.timeline.SetCurrentTimecode(timecode)
                 print(f"LOG: INFO: Navigated to timecode: {timecode}")
-            else:
+            if not sub_obj:
                 print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id}")
+                return
+            timecode = sub_obj['start']
+            self.resolve_integration.timeline.SetCurrentTimecode(timecode)
+            print(f"LOG: INFO: Navigated to timecode: {timecode}")
         except (ValueError, IndexError):
             print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id_str}")
 
@@ -100,13 +102,13 @@ class ApplicationController:
     def on_item_changed(self, item, column):
         if column == 1:
             try:
-                item_id = int(item.text(0))
+                item_index = int(item.text(0))
                 new_text = item.text(1)
                 
-                if self.subtitle_manager.update_subtitle_text(item_id, new_text):
-                    print(f"LOG: INFO: Updated subtitle {item_id} in data and file.")
+                if self.subtitle_manager.update_subtitle_text(item_index, new_text):
+                    print(f"LOG: INFO: Updated subtitle {item_index} in data and file.")
                 else:
-                    print(f"LOG: ERROR: Failed to update subtitle {item_id}.")
+                    print(f"LOG: ERROR: Failed to update subtitle {item_index}.")
  
             except (ValueError, KeyError) as e:
                 print(f"LOG: ERROR: Failed to update subtitle due to invalid data: {e}")
@@ -119,14 +121,14 @@ class ApplicationController:
         if not current_item:
             return
             
-        item_id = int(current_item.text(0))
+        item_index = int(current_item.text(0))
         find_text = self.window.find_text.text()
         replace_text = self.window.replace_text.text()
 
-        change = self.subtitle_manager.handle_replace_current(item_id, find_text, replace_text)
+        change = self.subtitle_manager.handle_replace_current(item_index, find_text, replace_text)
         
         if change:
-            self.window.update_item_for_replace(change['id'], change['old'], change['new'])
+            self.window.update_item_for_replace(change['index'], change['old'], change['new'])
             self.window.find_next()
  
     def handle_replace_all(self):
@@ -143,7 +145,6 @@ class ApplicationController:
 
     def run(self):
         self.connect_signals()
-        self.refresh_data()
         self.window.show()
         sys.exit(self.app.exec())
 

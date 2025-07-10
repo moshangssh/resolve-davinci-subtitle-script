@@ -191,3 +191,27 @@ pytest, unittest.mock
 **Rationale:** Improve user experience by removing the need for manual clearing of input fields after a bulk replacement. The change is minor, non-disruptive, and aligns with the goal of a more efficient UI.
 **Implementation:** Added `self.window.find_text.clear()` and `self.window.replace_text.clear()` to the `handle_replace_all` method in `src/main.py` within the `if changes:` block.
 ---
+**决策日期:** 2025-07-10T17:20:00+08:00
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 解决因自动刷新导致的用户修改内容丢失问题。
+
+**决策:**
+将字幕数据的加载和刷新机制从“自动触发”重构为“手动触发”。
+
+1.  **移除自动加载:**
+    *   删除程序启动时 (`ApplicationController.run`) 的自动数据加载调用。
+    *   修改轨道切换逻辑 (`on_track_changed`)，使其不再直接从 DaVinci Resolve 获取数据。
+
+2.  **引入手动刷新和缓存机制:**
+    *   利用UI上已有的“刷新”按钮，将其 `clicked` 信号连接到新的核心方法 `on_refresh_button_clicked`。
+    *   该方法现在是唯一的数据入口点，负责：
+        *   调用 `resolve_integration.cache_all_subtitle_tracks`，遍历所有字幕轨道，并将每个轨道的字幕内容缓存到一个独立的临时JSON文件中 (`cache/track_*.json`)。
+        *   刷新UI上的轨道下拉列表。
+        *   加载当前选中轨道的缓存数据显示在UI上。
+
+3.  **修改数据流:**
+    *   `SubtitleManager` 被修改为从这些临时JSON缓存文件中读取和写入数据，彻底与实时Resolve API调用解耦。
+
+**理由:**
+此前的自动刷新机制会在用户切换轨道时立即用Resolve中的实时数据覆盖UI，导致任何未保存的本地修改全部丢失，这是一个严重的数据丢失风险。通过将控制权完全交给用户，只有当用户明确点击“刷新”时，才会更新本地缓存，从而确保了用户在UI中所做的任何修改都能被安全地保留，直到下一次手动刷新。这个决策从根本上解决了数据丢失问题，显著提升了应用的健壮性和用户体验。
+---

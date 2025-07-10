@@ -9,23 +9,14 @@
       "alwaysAllow": [
         "resolve-library-id",
         "get-library-docs"
-      ]
+      ],
+      "disabled": false
     },
     "sequential-thinking": {
       "command": "npx",
       "args": [
         "-y",
         "@modelcontextprotocol/server-sequential-thinking"
-      ]
-    },
-    "mcp-feedback-enhanced": {
-      "command": "uvx",
-      "args": [
-        "mcp-feedback-enhanced@latest"
-      ],
-      "timeout": 600,
-      "autoApprove": [
-        "interactive_feedback"
       ]
     },
     "playwright": {
@@ -69,6 +60,19 @@
         "-y",
         "mcp-deepwiki@latest"
       ]
+    },
+    "promptx": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "-f",
+        "--registry",
+        "https://registry.npmjs.org",
+        "dpml-prompt@beta",
+        "mcp-server"
+      ],
+      "disabled": false,
+      "alwaysAllow": []
     }
   }
 }

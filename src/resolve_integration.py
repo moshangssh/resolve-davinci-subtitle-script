@@ -97,7 +97,6 @@ class ResolveIntegration:
         if not subtitles:
             return None
 
-
         output_data = []
         for sub in subtitles:
             output_data.append({
@@ -106,19 +105,29 @@ class ResolveIntegration:
                 "end": sub['out_timecode'],
                 "text": sub['text']
             })
+        return output_data
 
-        try:
-            temp_dir = tempfile.gettempdir()
-            file_path = os.path.join(temp_dir, "subtitles.json")
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, ensure_ascii=False, indent=2)
-            return file_path
-        except (IOError, json.JSONDecodeError) as e:
-            print(f"LOG: ERROR: Error writing or encoding JSON file: {e}")
-            return None
-        except Exception as e:
-            print(f"LOG: CRITICAL: An unexpected error occurred during JSON export: {e}")
-            return None
+    def cache_all_subtitle_tracks(self):
+        cache_dir = os.path.join(tempfile.gettempdir(), 'subvigator_cache')
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        timeline_info = self.get_current_timeline_info()
+        if not timeline_info:
+            return
+
+        track_count = timeline_info['track_count']
+        for i in range(1, track_count + 1):
+            json_data = self.export_subtitles_to_json(track_number=i)
+            if json_data:
+                file_path = os.path.join(cache_dir, f"track_{i}.json")
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(json_data, f, ensure_ascii=False, indent=2)
+                except (IOError, json.JSONDecodeError) as e:
+                    print(f"LOG: ERROR: Error writing or encoding JSON file for track {i}: {e}")
+                except Exception as e:
+                    print(f"LOG: CRITICAL: An unexpected error occurred during JSON export for track {i}: {e}")
             
     def export_subtitles_to_srt(self, track_number=1, zero_based=False):
         if not self.timeline:
