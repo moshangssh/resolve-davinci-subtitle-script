@@ -8,14 +8,12 @@ from resolve_integration import ResolveIntegration
 from timecode_utils import TimecodeUtils
 from ui import SubvigatorWindow
 from subtitle_manager import SubtitleManager
-from data_model import DataModel
 
 class ApplicationController:
-    def __init__(self, resolve_integration, subtitle_manager, data_model, timecode_utils):
+    def __init__(self, resolve_integration, subtitle_manager, timecode_utils):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.resolve_integration = resolve_integration
         self.subtitle_manager = subtitle_manager
-        self.data_model = data_model
         self.timecode_utils = timecode_utils
         self.window = SubvigatorWindow(self.resolve_integration)
         
@@ -58,7 +56,6 @@ class ApplicationController:
 
         print("LOG: INFO: Starting export and re-import process.")
         self.resolve_integration.reimport_from_json_file(self.subtitle_manager.current_json_path)
-        self.refresh_data()
  
     def on_track_changed(self, index):
         if index < 0:
@@ -84,8 +81,6 @@ class ApplicationController:
         if self.window.track_combo.count() > 0:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
-    def refresh_data(self):
-        pass
 
     def on_item_clicked(self, item, column):
         try:
@@ -178,13 +173,11 @@ def main():
     """Main function to run the application."""
     try:
         resolve_integration = ResolveIntegration()
-        data_model = DataModel()
-        subtitle_manager = SubtitleManager(resolve_integration, data_model)
+        subtitle_manager = SubtitleManager(resolve_integration)
         timecode_utils = TimecodeUtils(resolve_integration.resolve)
         controller = ApplicationController(
             resolve_integration=resolve_integration,
             subtitle_manager=subtitle_manager,
-            data_model=data_model,
             timecode_utils=timecode_utils
         )
         controller.run()

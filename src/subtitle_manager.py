@@ -7,9 +7,8 @@ class SubtitleManager:
     """
     Manages subtitle data, including loading, processing, and saving.
     """
-    def __init__(self, resolve_integration, data_model):
+    def __init__(self, resolve_integration):
         self.resolve_integration = resolve_integration
-        self.data_model = data_model
         self.subtitles_data = []
         self.raw_obj_map = {}
         self.current_json_path = None
