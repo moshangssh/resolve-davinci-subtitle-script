@@ -1,6 +1,6 @@
 # main.py
 import sys
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import os
 
@@ -20,7 +20,7 @@ class ApplicationController:
         self.window = SubvigatorWindow(self.resolve_integration)
         
     def connect_signals(self):
-        self.window.refresh_button.clicked.connect(self.refresh_data)
+        self.window.refresh_button.clicked.connect(self.on_refresh_button_clicked)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.window.tree.itemChanged.connect(self.on_item_changed)
@@ -36,9 +36,26 @@ class ApplicationController:
  
  
     def on_export_reimport_clicked(self):
+        if self.window.track_combo.currentIndex() < 0:
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setText("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。")
+            msg_box.setWindowTitle("未选择轨道")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec()
+            return
+
         if self.subtitle_manager.current_json_path is None:
             print("LOG: ERROR: No JSON file path is set, please select a track first.")
+            # Also show a message box here for consistency, as this is a fallback.
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setText("无法获取轨道文件路径。请刷新并重试。")
+            msg_box.setWindowTitle("操作失败")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec()
             return
+
         print("LOG: INFO: Starting export and re-import process.")
         self.resolve_integration.reimport_from_json_file(self.subtitle_manager.current_json_path)
         self.refresh_data()
@@ -53,7 +70,8 @@ class ApplicationController:
         self.window.populate_table(subs_data=subtitles)
         self.window.filter_tree(self.window.search_text.text())
 
-    def refresh_data(self):
+    def on_refresh_button_clicked(self):
+        self.resolve_integration.cache_all_subtitle_tracks()
         timeline_info = self.resolve_integration.get_current_timeline_info()
         if not timeline_info:
             return
@@ -66,6 +84,9 @@ class ApplicationController:
         if self.window.track_combo.count() > 0:
             self.on_track_changed(self.window.track_combo.currentIndex())
 
+    def refresh_data(self):
+        pass
+
     def on_item_clicked(self, item, column):
         try:
             item_id_str = item.text(0)
@@ -73,24 +94,31 @@ class ApplicationController:
                 return
 
             item_id = int(item_id_str)
+            sub_obj = next((s for s in self.subtitle_manager.get_subtitles() if s['index'] == item_id), None)
 
-            # Find the corresponding subtitle object from the stored data
-            sub_obj = next((s for s in self.subtitle_manager.get_subtitles() if s['id'] == item_id), None)
- 
-            if sub_obj:
-                start_frame = sub_obj['in_frame']
-                timeline_info = self.resolve_integration.get_current_timeline_info()
-                frame_rate = timeline_info['frame_rate']
-                drop_frame = self.resolve_integration.timeline.GetSetting('timelineDropFrame') == '1'
-
-                timecode = self.timecode_utils.timecode_from_frame(start_frame, frame_rate, drop_frame)
-
-                self.resolve_integration.timeline.SetCurrentTimecode(timecode)
-                print(f"LOG: INFO: Navigated to timecode: {timecode}")
-            else:
+            if not sub_obj:
                 print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id}")
-        except (ValueError, IndexError):
-            print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id_str}")
+                return
+
+            timeline_info = self.resolve_integration.get_current_timeline_info()
+            if not timeline_info:
+                print("LOG: WARNING: Could not get timeline info.")
+                return
+
+            frame_rate = timeline_info['frame_rate']
+            start_timecode_str = sub_obj['start']
+
+            # Convert HH:MM:SS,ms to total frames
+            total_frames = self.timecode_utils.timecode_to_frames(start_timecode_str, frame_rate)
+            
+            # Convert total frames to HH:MM:SS:FF for Resolve
+            resolve_timecode = self.timecode_utils.timecode_from_frame(total_frames, frame_rate)
+            
+            self.resolve_integration.timeline.SetCurrentTimecode(resolve_timecode)
+            print(f"LOG: INFO: Navigated to timecode: {resolve_timecode} (Frame: {total_frames})")
+
+        except (ValueError, IndexError) as e:
+            print(f"LOG: WARNING: Failed to process item click for ID {item_id_str}: {e}")
 
 
     def on_item_double_clicked(self, item, column):
@@ -100,13 +128,13 @@ class ApplicationController:
     def on_item_changed(self, item, column):
         if column == 1:
             try:
-                item_id = int(item.text(0))
+                item_index = int(item.text(0))
                 new_text = item.text(1)
                 
-                if self.subtitle_manager.update_subtitle_text(item_id, new_text):
-                    print(f"LOG: INFO: Updated subtitle {item_id} in data and file.")
+                if self.subtitle_manager.update_subtitle_text(item_index, new_text):
+                    print(f"LOG: INFO: Updated subtitle {item_index} in data and file.")
                 else:
-                    print(f"LOG: ERROR: Failed to update subtitle {item_id}.")
+                    print(f"LOG: ERROR: Failed to update subtitle {item_index}.")
  
             except (ValueError, KeyError) as e:
                 print(f"LOG: ERROR: Failed to update subtitle due to invalid data: {e}")
@@ -119,14 +147,14 @@ class ApplicationController:
         if not current_item:
             return
             
-        item_id = int(current_item.text(0))
+        item_index = int(current_item.text(0))
         find_text = self.window.find_text.text()
         replace_text = self.window.replace_text.text()
 
-        change = self.subtitle_manager.handle_replace_current(item_id, find_text, replace_text)
+        change = self.subtitle_manager.handle_replace_current(item_index, find_text, replace_text)
         
         if change:
-            self.window.update_item_for_replace(change['id'], change['old'], change['new'])
+            self.window.update_item_for_replace(change['index'], change['old'], change['new'])
             self.window.find_next()
  
     def handle_replace_all(self):
@@ -143,7 +171,6 @@ class ApplicationController:
 
     def run(self):
         self.connect_signals()
-        self.refresh_data()
         self.window.show()
         sys.exit(self.app.exec())
 

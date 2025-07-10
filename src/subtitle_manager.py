@@ -1,5 +1,7 @@
 import re
 import json
+import os
+import tempfile
 
 class SubtitleManager:
     """
@@ -11,21 +13,22 @@ class SubtitleManager:
         self.subtitles_data = []
         self.raw_obj_map = {}
         self.current_json_path = None
+        self.cache_dir = os.path.join(tempfile.gettempdir(), 'subvigator_cache')
+        self.current_track_index = None
 
     def load_subtitles(self, track_index):
         """
-        Loads subtitles from Resolve, stores them, and exports to a JSON file.
+        Loads subtitles from the cache.
         """
-        self.current_json_path = self.resolve_integration.export_subtitles_to_json(track_index)
-        
-        subs_data_with_raw = self.resolve_integration.get_subtitles_with_timecode(track_index)
-        
-        self.subtitles_data = []
-        self.raw_obj_map = {}
-        if subs_data_with_raw:
-            for sub in subs_data_with_raw:
-                self.raw_obj_map[sub['id']] = sub.pop('raw_obj', None)
-                self.subtitles_data.append(sub)
+        self.current_track_index = track_index
+        file_path = os.path.join(self.cache_dir, f"track_{track_index}.json")
+        self.current_json_path = file_path
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                self.subtitles_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.subtitles_data = []
+            self.current_json_path = None # If file doesn't exist, path is invalid
         
         return self.subtitles_data
 
@@ -34,7 +37,7 @@ class SubtitleManager:
 
     def update_subtitle_text(self, item_id, new_text):
         """Updates the text of a single subtitle and saves the changes."""
-        sub_obj = next((s for s in self.subtitles_data if s['id'] == item_id), None)
+        sub_obj = next((s for s in self.subtitles_data if s['index'] == item_id), None)
         if sub_obj:
             sub_obj['text'] = new_text
             self._save_changes_to_json()
@@ -45,14 +48,14 @@ class SubtitleManager:
         """Handles replacing the text of a single subtitle item."""
         if not find_text:
             return None
-        sub_obj = next((s for s in self.subtitles_data if s['id'] == item_id), None)
+        sub_obj = next((s for s in self.subtitles_data if s['index'] == item_id), None)
         if sub_obj:
             original_text = sub_obj['text']
             new_text = original_text.replace(find_text, replace_text, 1)
             if original_text != new_text:
                 sub_obj['text'] = new_text
                 self._save_changes_to_json()
-                return {'id': item_id, 'old': original_text, 'new': new_text}
+                return {'index': item_id, 'old': original_text, 'new': new_text}
         return None
 
     def handle_replace_all(self, find_text, replace_text):
@@ -65,7 +68,7 @@ class SubtitleManager:
             original_text = sub_obj['text']
             new_text = original_text.replace(find_text, replace_text)
             if original_text != new_text:
-                changes.append({'id': sub_obj['id'], 'old': original_text, 'new': new_text})
+                changes.append({'index': sub_obj['index'], 'old': original_text, 'new': new_text})
                 sub_obj['text'] = new_text
         
         if changes:
@@ -75,22 +78,24 @@ class SubtitleManager:
 
     def _save_changes_to_json(self):
         """Saves the current subtitle data to the JSON file."""
-        if not self.current_json_path:
-            print("Error: No current JSON file path is set. Cannot save.")
+        if self.current_track_index is None:
+            print("Error: No current track index is set. Cannot save.")
             return
 
+        file_path = os.path.join(self.cache_dir, f"track_{self.current_track_index}.json")
+        
         try:
             output_data = []
             for sub in self.subtitles_data:
                 clean_text = re.sub(r'<[^>]+>', '', sub.get('text', ''))
                 output_data.append({
-                    "index": sub.get('id'),
-                    "start": sub.get('in_timecode'),
-                    "end": sub.get('out_timecode'),
-                    "text": clean_text
+                    "index": sub.get('index'),
+                    "start": sub.get('start'),
+                    "end": sub.get('end'),
+                    "text": clean_text,
                 })
 
-            with open(self.current_json_path, 'w', encoding='utf-8') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(output_data, f, ensure_ascii=False, indent=2)
         except (IOError, TypeError) as e:
             print(f"Failed to auto-save subtitle changes: {e}")

@@ -1,12 +1,2 @@
-# 子任务: 【功能实现】直接编辑高亮（绿色） (ID: ae65ba21-1cb5-40a5-be16-3e9dceac91da)
-
-**目标:** 修改 `src/ui.py`，当用户编辑'Subtitle'列后，若文本内容改变，则文本颜色变为绿色。
-
-**工作日志:**
-
-*   **[2025-07-09]** 开始任务。
-*   **[2025-07-09]** 清理并初始化 `activeContext.md` 以记录当前任务的进展。
-*   **[2025-07-09]** 准备读取 `src/ui.py` 文件以分析现有代码结构。
-*   **[2025-07-09]** 实现了初步版本，但错误地将所有文本都变绿了。
-*   **[2025-07-09]** 修复了加载时所有文本变绿的问题。
-*   **[2025-07-09]** 根据用户反馈，我需要实现字符级的高亮，而不仅仅是整个单元格。我将使用 `difflib` 来实现。
+# Active Context
+This file serves as a temporary workspace for the currently active sub-task. Its content will be cleared and archived by NexusCore upon task completion.

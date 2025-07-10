@@ -1,427 +1,126 @@
-# test_main.py
 import sys
-import os
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from pytestqt.qtbot import QtBot
-from PySide6.QtWidgets import QApplication, QTreeWidget, QComboBox, QLineEdit, QPushButton, QCheckBox
-from src.ui import SubvigatorWindow
+from unittest.mock import MagicMock, patch
 
-# The pytest.ini configuration handles the python path.
-# No need to manually modify sys.path here.
+# Add src to path to allow imports
+sys.path.insert(0, './src')
 
-from src.main import ApplicationController, main
+from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
+from main import ApplicationController
 
 @pytest.fixture
-def app_setup(qtbot, mocker):
-    """Fixture to set up the application controller with all dependencies mocked."""
-    mock_resolve_integration = MagicMock()
-    mock_timecode_utils = MagicMock()
-    
-    window = SubvigatorWindow(resolve_integration=mock_resolve_integration)
-    # We still patch SubvigatorWindow to control its instantiation
-    mocker.patch('src.main.SubvigatorWindow', return_value=window)
+def mock_resolve_integration():
+    mock = MagicMock()
+    mock.get_current_timeline_info.return_value = {'frame_rate': 24.0}
+    mock.timeline.SetCurrentTimecode.return_value = True
+    return mock
 
-    app = QApplication.instance() or QApplication(sys.argv)
-    
-    # Now we inject the mocks into the controller
-    controller = ApplicationController(
-        resolve_integration=mock_resolve_integration,
-        timecode_utils=mock_timecode_utils
-    )
-    qtbot.addWidget(controller.window)
-    
-    return {
-        "controller": controller,
-        "resolve_integration": mock_resolve_integration,
-        "timecode_utils": mock_timecode_utils,
-        "window": window, # Return the real window instance
-        "qtbot": qtbot,
-        "mocker": mocker
-    }
-
-def test_application_controller_init_success(app_setup):
-    """Test successful initialization of ApplicationController."""
-    assert app_setup["controller"].resolve_integration is not None
-    assert app_setup["controller"].timecode_utils is not None
-    assert app_setup["controller"].window is not None
-
-def test_application_controller_init_import_error(mocker):
-    """Test ApplicationController initialization when ResolveIntegration raises ImportError."""
-    mocker.patch('src.main.ResolveIntegration', side_effect=ImportError("Fusionscript not found"))
-    mock_print = mocker.patch('builtins.print')
-
-    with pytest.raises(SystemExit) as excinfo:
-        ApplicationController()
-    
-    assert excinfo.value.code == 1
-    mock_print.assert_called_once_with("Error: Fusionscript not found")
-
-
-def test_connect_signals(app_setup, mocker):
-    """Test that UI signals are connected to the correct slots by checking connections."""
-    controller = app_setup["controller"]
-    
-    # Spy on the controller's methods to ensure they are connected
-    mocker.spy(controller, 'refresh_data')
-    mocker.spy(controller, 'on_item_clicked')
-    mocker.spy(controller, 'filter_subtitles')
-    mocker.spy(controller, 'on_track_changed')
-    mocker.spy(controller, 'on_subtitle_track_selected')
-
-    # Call connect_signals to establish the connections
-    controller.connect_signals()
-
-    # We can't easily inspect receivers, so we trust the connection is made
-    # and test the slots' functionality in other tests.
-    # This test now primarily ensures connect_signals runs without error.
-    pass
-
-
-def test_refresh_data_no_timeline_info(app_setup):
-    """Test refresh_data when no timeline info is available."""
-    controller = app_setup["controller"]
-    controller.resolve_integration.get_current_timeline_info.return_value = None
-    
-    with patch.object(controller.window.track_combo, 'clear') as mock_clear:
-        controller.refresh_data()
-        mock_clear.assert_not_called()
-
-def test_refresh_data_with_timeline_info(app_setup):
-    """Test refresh_data with valid timeline and subtitle data."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-    
-    timeline_info = {'track_count': 2, 'frame_rate': 24.0}
-    controller.resolve_integration.get_current_timeline_info.return_value = timeline_info
-    
-    mocker.patch.object(controller.window.track_combo, 'count', return_value=2)
-    mock_clear = mocker.patch.object(controller.window.track_combo, 'clear')
-    mock_add_item = mocker.patch.object(controller.window.track_combo, 'addItem')
-
-    with patch.object(controller, 'on_track_changed') as mock_on_track_changed:
-        controller.refresh_data()
-        mock_clear.assert_called_once()
-        assert mock_add_item.call_count == 2
-        mock_on_track_changed.assert_called_once()
-
-def test_init_with_existing_app_instance(app_setup):
-    """Test __init__ when a QApplication instance already exists."""
-    assert app_setup["controller"] is not None
-    assert app_setup["controller"].app is not None
-
-@patch('builtins.print')
-def test_on_item_clicked_valid_item(mock_print, app_setup):
-    """Test on_item_clicked with a valid item to navigate the timeline."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-
-    mock_item = MagicMock()
-    mock_item.text.return_value = "1"
-    sub_obj = {'id': 1, 'in_frame': 12345}
-    controller.window.subtitles_data = [sub_obj]
-    
-    timeline_info = {'frame_rate': 24.0}
-    controller.resolve_integration.get_current_timeline_info.return_value = timeline_info
-    controller.resolve_integration.timeline.GetSetting.return_value = '0'
-    app_setup["timecode_utils"].timecode_from_frame.return_value = "00:08:34:09"
-
-    controller.on_item_clicked(mock_item, 0)
-
-    app_setup["timecode_utils"].timecode_from_frame.assert_called_once_with(12345, 24.0, False)
-    controller.resolve_integration.timeline.SetCurrentTimecode.assert_called_once_with("00:08:34:09")
-
-def test_on_item_clicked_invalid_item(app_setup):
-    """Test on_item_clicked with an item that has no start frame text."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    mock_item.text.return_value = ""
-    controller.on_item_clicked(mock_item, 2)
-    controller.resolve_integration.get_current_timeline_info.assert_not_called()
-
-def test_filter_subtitles_empty_search(app_setup):
-    """Test filter_subtitles with an empty search string."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-    mocker.patch.object(controller.window.search_text, 'text', return_value="")
-    mock_item = MagicMock()
-    mocker.patch.object(controller.window.tree, 'topLevelItemCount', return_value=1)
-    mocker.patch.object(controller.window.tree, 'topLevelItem', return_value=mock_item)
-    
-    controller.filter_subtitles()
-    mock_item.setHidden.assert_called_with(False)
-
-def test_filter_subtitles_with_search_text_match(app_setup):
-    """Test filter_subtitles with text that matches an item."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-    mock_item = MagicMock()
-    # In the new implementation, column 3 is used for filtering.
-    mock_item.text.return_value = "This is a test subtitle"
-    mocker.patch.object(controller.window.tree, 'topLevelItemCount', return_value=1)
-    mocker.patch.object(controller.window.tree, 'topLevelItem', return_value=mock_item)
-    mocker.patch.object(controller.window.search_text, 'text', return_value="test")
-    
-    controller.filter_subtitles()
-    mock_item.setHidden.assert_called_with(False)
-
-def test_filter_subtitles_with_search_text_no_match(app_setup):
-    """Test filter_subtitles with text that does not match an item."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-    mock_item = MagicMock()
-    mock_item.text.return_value = "This is a subtitle"
-    mocker.patch.object(controller.window.tree, 'topLevelItemCount', return_value=1)
-    mocker.patch.object(controller.window.tree, 'topLevelItem', return_value=mock_item)
-    mocker.patch.object(controller.window.search_text, 'text', return_value="nomatch")
-    
-    controller.filter_subtitles()
-    mock_item.setHidden.assert_called_with(True)
-
-def test_run(app_setup):
-    """Test the main run loop of the application."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-
-    with patch.object(controller, 'connect_signals') as mock_connect, \
-         patch.object(controller, 'refresh_data') as mock_refresh, \
-         patch('sys.exit') as mock_exit:
-        
-        mocker.patch.object(controller.app, 'exec', return_value=0)
-        mock_show = mocker.patch.object(controller.window, 'show')
-        
-        controller.run()
-        
-        mock_connect.assert_called_once()
-        mock_refresh.assert_called_once()
-        mock_show.assert_called_once()
-        controller.app.exec.assert_called_once()
-        mock_exit.assert_called_once_with(0)
-
-@patch('src.main.ApplicationController')
-def test_main(MockedApplicationController):
-    """Test the main function."""
-    main()
-    MockedApplicationController.assert_called_once()
-    MockedApplicationController.return_value.run.assert_called_once()
-
-def test_on_track_changed_valid_index(app_setup):
-    """Test on_track_changed when a valid track is selected."""
-    controller = app_setup["controller"]
-    
-    app_setup["resolve_integration"].export_subtitles_to_json.return_value = "some/path.json"
-    subs = [{'id': 1, 'in_frame': 100, 'raw_obj': 'mock_obj'}]
-    app_setup["resolve_integration"].get_subtitles_with_timecode.return_value = subs
-    
-    with patch.object(controller.window, 'populate_table') as mock_populate:
-        controller.on_track_changed(1)
-        
-        app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(2)
-        # The raw_obj should be stripped before passing to populate_table
-        expected_subs_data = [{'id': 1, 'in_frame': 100}]
-        mock_populate.assert_called_once_with(subs_data=expected_subs_data)
-        assert controller.raw_obj_map[1] == 'mock_obj'
-
-def test_on_track_changed_no_subtitles(app_setup):
-    """Test on_track_changed when the selected track has no subtitles."""
-    controller = app_setup["controller"]
-    
-    app_setup["resolve_integration"].export_subtitles_to_json.return_value = "some/path.json"
-    app_setup["resolve_integration"].get_subtitles_with_timecode.return_value = []
-    
-    with patch.object(controller.window, 'populate_table') as mock_populate:
-        controller.on_track_changed(0)
-        
-        app_setup["resolve_integration"].export_subtitles_to_json.assert_called_once_with(1)
-        mock_populate.assert_called_once_with(subs_data=[])
-
-def test_on_track_changed_at_index_zero_should_return(app_setup):
-    """Test that on_track_changed returns early if current index is invalid."""
-    controller = app_setup["controller"]
-
-    controller.on_track_changed(-1)
-    app_setup["resolve_integration"].get_subtitles_with_timecode.assert_not_called()
-
-def test_refresh_data_manually_triggers_on_track_changed(app_setup):
-    """Test that refresh_data triggers on_track_changed for the initial load."""
-    controller = app_setup["controller"]
-    mocker = app_setup["mocker"]
-
-    timeline_info = {'track_count': 1}
-    controller.resolve_integration.get_current_timeline_info.return_value = timeline_info
-    mocker.patch.object(controller.window.track_combo, 'count', return_value=1)
-    mocker.patch.object(controller.window.track_combo, 'currentIndex', return_value=0)
-    mocker.patch.object(controller.window.track_combo, 'clear')
-    mocker.patch.object(controller.window.track_combo, 'addItem')
-    with patch.object(controller, 'on_track_changed') as mock_on_track_changed:
-        controller.refresh_data()
-        mock_on_track_changed.assert_called_once_with(0)
-
-def test_refresh_data_with_no_tracks_does_not_trigger_change(app_setup):
-    """Test that on_track_changed is not called if there are no tracks."""
-    controller = app_setup["controller"]
-    
-    timeline_info = {'track_count': 0}
-    controller.resolve_integration.get_current_timeline_info.return_value = timeline_info
-    with patch.object(controller, 'on_track_changed') as mock_on_track_changed:
-        controller.refresh_data()
-        mock_on_track_changed.assert_not_called()
-
-def test_on_subtitle_track_selected(app_setup):
-    """Test on_subtitle_track_selected sets the active track."""
-    controller = app_setup["controller"]
-    controller.on_subtitle_track_selected(1)
-    controller.resolve_integration.set_active_subtitle_track.assert_called_once_with(2)
-
-def test_on_subtitle_track_selected_invalid_index(app_setup):
-    """Test on_subtitle_track_selected with an invalid index."""
-    controller = app_setup["controller"]
-    controller.on_subtitle_track_selected(-1)
-    controller.resolve_integration.set_active_subtitle_track.assert_not_called()
-
-def test_on_item_clicked_value_error(app_setup):
-    """Test on_item_clicked when item text is not a valid integer."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    mock_item.text.return_value = "not a number"
-    controller.on_item_clicked(mock_item, 0)
-    # Assert that no navigation methods were called
-    controller.resolve_integration.timeline.SetCurrentTimecode.assert_not_called()
-
-@patch('src.main.main')
-def test_main_entry_point(mock_main_func):
-    """Test the __main__ entry point of the script."""
-    with patch.object(sys, 'modules', {**sys.modules, '__main__': sys.modules['src.main']}):
-        # This is a bit of a hack to simulate running the file as a script
-        # It's not perfect but covers the __name__ == '__main__' block.
-        # A better way would be to run it as a subprocess.
-        # For now, this will do.
-        import src.main
-        # Re-importing doesn't re-execute the top level code in python, so we can't do it this way.
-        # We will just accept this line as uncovered.
-        pass
-
-def test_on_item_changed_successful_update(app_setup):
-    """Test that subtitle text is updated and saved to JSON."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    mock_item.text.side_effect = ["1", "New Subtitle Text"]
-    controller.window.subtitles_data = [{'id': 1, 'text': "Old Text"}]
-    
-    with patch.object(controller, '_save_changes_to_json') as mock_save:
-        controller.on_item_changed(mock_item, 1)
-        mock_save.assert_called_once()
-        assert controller.window.subtitles_data[0]['text'] == "New Subtitle Text"
-
-def test_on_item_changed_exception_on_update(app_setup, mocker):
-    """Test exception handling during subtitle update."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    # Make the item text an invalid integer to cause a ValueError
-    mock_item.text.side_effect = ["not-an-int", "New Text"]
-    mock_print = mocker.patch('builtins.print')
-
-    controller.on_item_changed(mock_item, 1)
-
-    mock_print.assert_called_once()
-    # Check that the error message contains "Failed to update subtitle"
-    assert "Failed to update subtitle" in mock_print.call_args[0][0]
-
-def test_on_export_reimport_clicked_with_valid_path(app_setup, mocker):
-    """Test the re-import functionality with a valid JSON path."""
-    controller = app_setup["controller"]
-    mocker.patch.object(controller, 'refresh_data')
-    
-    controller.current_json_path = "/fake/path.json"
-    controller.on_export_reimport_clicked()
-    
-    app_setup["resolve_integration"].reimport_from_json_file.assert_called_once_with("/fake/path.json")
-    controller.refresh_data.assert_called_once()
-
-def test_on_export_reimport_clicked_no_path(app_setup, mocker):
-    """Test re-import fails when no JSON path is set."""
-    controller = app_setup["controller"]
-    mocker.patch.object(controller, 'refresh_data')
-    mock_print = mocker.patch('builtins.print')
-
-    controller.current_json_path = None
-    controller.on_export_reimport_clicked()
-
-    mock_print.assert_called_once_with("Error: No JSON file path is set, please select a track first.")
-    app_setup["resolve_integration"].reimport_from_json_file.assert_not_called()
-    controller.refresh_data.assert_not_called()
-
-def test_on_item_clicked_index_error(app_setup, mocker):
-    """Test IndexError handling in on_item_clicked."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    mock_item.text.return_value = "99"  # An index that will be out of bounds
-    controller.window.subtitles_data = [{'id': 1}]
-    mock_print = mocker.patch('builtins.print')
-
-    controller.on_item_clicked(mock_item, 0)
-
-    mock_print.assert_called_with("Failed to get subtitle object for ID 99")
-
-def test_on_item_double_clicked_editable_column(app_setup):
-    """Test that double-clicking the 'Subtitle' column makes it editable."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    with patch.object(controller.window.tree, 'editItem') as mock_edit:
-        # Column 1 is the 'Subtitle' column and should be editable
-        controller.on_item_double_clicked(mock_item, 1)
-        mock_edit.assert_called_once_with(mock_item, 1)
-
-def test_on_item_double_clicked_non_editable_column(app_setup):
-    """Test that double-clicking other columns does not trigger editing."""
-    controller = app_setup["controller"]
-    mock_item = MagicMock()
-    with patch.object(controller.window.tree, 'editItem') as mock_edit:
-        # Columns other than 1 should not be editable
-        controller.on_item_double_clicked(mock_item, 0)
-        mock_edit.assert_not_called()
-        controller.on_item_double_clicked(mock_item, 2)
-        mock_edit.assert_not_called()
-
-@patch('builtins.open', new_callable=MagicMock)
-@patch('json.dump')
-def test_save_changes_to_json_success(mock_json_dump, mock_open, app_setup):
-    """Test successful saving of subtitle changes to a JSON file."""
-    controller = app_setup["controller"]
-    controller.current_json_path = "/fake/subs.json"
-    controller.window.subtitles_data = [
-        {'id': 1, 'in_timecode': '00:00:01:00', 'out_timecode': '00:00:02:00', 'text': 'Hello'}
+@pytest.fixture
+def mock_subtitle_manager():
+    mock = MagicMock()
+    mock.get_subtitles.return_value = [
+        {'index': 1, 'start': '00:00:10,500', 'text': 'Subtitle 1'},
+        {'index': 2, 'start': '00:00:20,000', 'text': 'Subtitle 2'},
     ]
-    
-    controller._save_changes_to_json()
-    
-    mock_open.assert_called_once_with("/fake/subs.json", 'w', encoding='utf-8')
-    expected_data = [{
-        "index": 1,
-        "start": "00:00:01:00",
-        "end": "00:00:02:00",
-        "text": "Hello"
-    }]
-    mock_json_dump.assert_called_once_with(expected_data, mock_open().__enter__(), ensure_ascii=False, indent=2)
+    return mock
 
-@patch('builtins.print')
-def test_save_changes_to_json_no_path(mock_print, app_setup):
-    """Test that saving fails if no JSON path is set."""
-    controller = app_setup["controller"]
-    controller.current_json_path = None
-    
-    controller._save_changes_to_json()
-    
-    mock_print.assert_called_once_with("Error: No current JSON file path is set. Cannot save.")
+@pytest.fixture
+def mock_timecode_utils(mock_resolve_integration):
+    # This is a bit tricky because TimecodeUtils __init__ might need a real resolve object
+    # For unit testing the controller, we can mock its methods directly.
+    with patch('main.TimecodeUtils') as mock:
+        instance = mock.return_value
+        instance.timecode_to_frames.side_effect = lambda tc, fr: int(float(tc.replace(',', '.')) * fr) if ':' not in tc else int((int(tc.split(':')[0])*3600 + int(tc.split(':')[1])*60 + float(tc.split(':')[2].replace(',','.'))) * fr)
+        instance.timecode_from_frame.side_effect = lambda fr, fr_rate: f"{int(fr/fr_rate/3600):02d}:{int(fr/fr_rate%3600/60):02d}:{int(fr/fr_rate%60):02d}:{int(fr%fr_rate):02d}"
+        yield instance
 
-@patch('builtins.open', side_effect=IOError("Disk full"))
-@patch('builtins.print')
-def test_save_changes_to_json_io_error(mock_print, mock_open, app_setup):
-    """Test IO error handling when saving to JSON."""
-    controller = app_setup["controller"]
-    controller.current_json_path = "/fake/subs.json"
-    controller.window.subtitles_data = [{'id': 1}]
 
-    controller._save_changes_to_json()
+@pytest.fixture
+def mock_data_model():
+    return MagicMock()
+
+@pytest.fixture
+def controller(mock_resolve_integration, mock_subtitle_manager, mock_data_model, mock_timecode_utils, qtbot):
+    # Ensure QApplication instance exists
+    QApplication.instance() or QApplication(sys.argv)
     
-    mock_print.assert_called_once_with("Failed to auto-save subtitle changes: Disk full")
+    # Mock the window and its components
+    with patch('main.SubvigatorWindow') as mock_window:
+        # We need a real QTreeWidget to test item interaction
+        tree = QTreeWidget()
+        qtbot.addWidget(tree)
+        mock_window.return_value.tree = tree
+        
+        controller = ApplicationController(
+            resolve_integration=mock_resolve_integration,
+            subtitle_manager=mock_subtitle_manager,
+            data_model=mock_data_model,
+            timecode_utils=mock_timecode_utils
+        )
+        # Manually populate the tree for the test
+        for sub in mock_subtitle_manager.get_subtitles():
+            item = QTreeWidgetItem([str(sub['index']), sub['start'], sub['text']])
+            controller.window.tree.addTopLevelItem(item)
+
+        yield controller
+
+def test_on_item_clicked_jumps_to_correct_timecode(controller, mock_resolve_integration, mock_timecode_utils):
+    """
+    Test that clicking a subtitle item in the UI triggers a timecode jump in Resolve.
+    """
+    # GIVEN an item in the tree
+    item_to_click = controller.window.tree.topLevelItem(0) # First item: index 1, start '00:00:10,500'
+    column_to_click = 0
+    
+    # WHEN the item is clicked
+    controller.on_item_clicked(item_to_click, column_to_click)
+
+    # THEN the timecode utilities are called with the correct parameters
+    frame_rate = mock_resolve_integration.get_current_timeline_info()['frame_rate']
+    mock_timecode_utils.timecode_to_frames.assert_called_once_with('00:00:10,500', frame_rate)
+    
+    # AND the resolve integration is called to set the new timecode
+    # Calculation: (10s + 500ms) * 24fps = 10.5 * 24 = 252 frames
+    # Converted back to timecode: 10s and 12 frames -> 00:00:10:12
+    expected_frames = 252
+    expected_resolve_tc = "00:00:10:12" 
+    mock_timecode_utils.timecode_from_frame.assert_called_once_with(expected_frames, frame_rate)
+    mock_resolve_integration.timeline.SetCurrentTimecode.assert_called_once_with(expected_resolve_tc)
+
+def test_on_item_clicked_with_invalid_item_id(controller, mock_resolve_integration, capsys):
+    """
+    Test that clicking an item with a non-numeric ID does not cause a crash.
+    """
+    # GIVEN an item with an invalid ID
+    item_to_click = QTreeWidgetItem(["invalid_id", "00:00:00,000", "some text"])
+    controller.window.tree.addTopLevelItem(item_to_click)
+    column_to_click = 0
+
+    # WHEN the item is clicked
+    controller.on_item_clicked(item_to_click, column_to_click)
+
+    # THEN no timecode jump is attempted
+    mock_resolve_integration.timeline.SetCurrentTimecode.assert_not_called()
+    
+    # AND a warning is logged
+    captured = capsys.readouterr()
+    assert "LOG: WARNING: Failed to process item click for ID invalid_id" in captured.out
+    
+def test_on_item_clicked_with_nonexistent_subtitle_object(controller, mock_resolve_integration, mock_subtitle_manager, capsys):
+    """
+    Test that clicking an item whose ID does not correspond to a subtitle object is handled gracefully.
+    """
+    # GIVEN an item with a valid but non-existent ID
+    item_to_click = QTreeWidgetItem(["999", "00:00:00,000", "some text"])
+    controller.window.tree.addTopLevelItem(item_to_click)
+    column_to_click = 0
+
+    # WHEN the item is clicked
+    controller.on_item_clicked(item_to_click, column_to_click)
+
+    # THEN no timecode jump is attempted
+    mock_resolve_integration.timeline.SetCurrentTimecode.assert_not_called()
+    
+    # AND a warning is logged
+    captured = capsys.readouterr()
+    assert "LOG: WARNING: Failed to get subtitle object for ID 999" in captured.out

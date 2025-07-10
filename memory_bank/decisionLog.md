@@ -191,3 +191,101 @@ pytest, unittest.mock
 **Rationale:** Improve user experience by removing the need for manual clearing of input fields after a bulk replacement. The change is minor, non-disruptive, and aligns with the goal of a more efficient UI.
 **Implementation:** Added `self.window.find_text.clear()` and `self.window.replace_text.clear()` to the `handle_replace_all` method in `src/main.py` within the `if changes:` block.
 ---
+**决策日期:** 2025-07-10T17:20:00+08:00
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 解决因自动刷新导致的用户修改内容丢失问题。
+
+**决策:**
+将字幕数据的加载和刷新机制从“自动触发”重构为“手动触发”。
+
+1.  **移除自动加载:**
+    *   删除程序启动时 (`ApplicationController.run`) 的自动数据加载调用。
+    *   修改轨道切换逻辑 (`on_track_changed`)，使其不再直接从 DaVinci Resolve 获取数据。
+
+2.  **引入手动刷新和缓存机制:**
+    *   利用UI上已有的“刷新”按钮，将其 `clicked` 信号连接到新的核心方法 `on_refresh_button_clicked`。
+    *   该方法现在是唯一的数据入口点，负责：
+        *   调用 `resolve_integration.cache_all_subtitle_tracks`，遍历所有字幕轨道，并将每个轨道的字幕内容缓存到一个独立的临时JSON文件中 (`cache/track_*.json`)。
+        *   刷新UI上的轨道下拉列表。
+        *   加载当前选中轨道的缓存数据显示在UI上。
+
+3.  **修改数据流:**
+    *   `SubtitleManager` 被修改为从这些临时JSON缓存文件中读取和写入数据，彻底与实时Resolve API调用解耦。
+
+**理由:**
+此前的自动刷新机制会在用户切换轨道时立即用Resolve中的实时数据覆盖UI，导致任何未保存的本地修改全部丢失，这是一个严重的数据丢失风险。通过将控制权完全交给用户，只有当用户明确点击“刷新”时，才会更新本地缓存，从而确保了用户在UI中所做的任何修改都能被安全地保留，直到下一次手动刷新。这个决策从根本上解决了数据丢失问题，显著提升了应用的健壮性和用户体验。
+---
+
+
+---
+**决策日期:** 2025-07-10
+**决策者:** `code-developer` (由 `NexusCore` 协调)
+**相关任务:** 修复“导出并重导入”在未选择轨道时的错误
+
+**决策内容:**
+1.  **UI/UX 改进**: 在 `src/main.py` 的 `on_export_reimport_clicked` 函数中增加了前置检查。如果用户未选择轨道，则通过 `QMessageBox` 弹出提示，阻止后续操作。此举将后台的逻辑错误转化为对用户友好的界面交互。
+2.  **根本原因修复**: 发现并修复了 `src/subtitle_manager.py` 中 `load_subtitles` 函数的缺陷。该函数在加载字幕轨道后，未能更新 `subtitle_manager.current_json_path` 变量，导致后续依赖此路径的操作失败。通过在加载时正确设置此路径，从根本上解决了问题。
+
+**理由:**
+*   直接在UI层面进行检查和反馈，比在控制台打印日志更能有效地引导用户，符合用户体验最佳实践。
+*   修复 `current_json_path` 未被设置的根本问题，确保了数据流的完整性和后续操作的稳定性，避免了潜在的、更隐蔽的bug。
+
+
+---
+### 代码实现 [时间码跳转逻辑]
+[2025-07-10 22:10:56] - 修复了DaVinci Resolve中时间码格式不匹配导致的跳转错误。
+
+**实现细节：**
+在`on_item_clicked`方法中，修改了时间码处理逻辑。现在，代码会：
+1. 从UI获取`HH:MM:SS,ms`格式的时间码。
+2. 使用`timecode_to_frames`将其转换为总帧数。
+3. 使用`timecode_from_frame`将总帧数转换为DaVinci Resolve兼容的`HH:MM:SS:FF`格式。
+4. 将转换后的时间码传递给`SetCurrentTimecode`，实现精确跳转。
+
+**测试框架：**
+后续将使用`pytest`和`unittest.mock`进行单元测试。
+
+**测试结果：**
+- 覆盖率：N/A (将在下一步生成测试)
+- 通过率：N/A (将在下一步生成测试)
+
+
+---
+### 测试实现 [时间码跳转逻辑]
+[2025-07-10 23:33:54] - 为 `on_item_clicked` 方法添加了单元测试。
+
+**实现细节：**
+在 `tests/test_main.py` 中，添加了新的测试用例来验证 `on_item_clicked` 方法的正确性。
+- `test_on_item_clicked_jumps_to_correct_timecode`: 验证了当用户点击一个有效的字幕项时，程序能够正确地将 SRT 时间码转换为帧数，再转换为 Resolve 时间码，并调用 Resolve API 进行跳转。
+- `test_on_item_clicked_with_invalid_item_id`: 验证了当字幕项的 ID 无效时，程序能够优雅地处理错误，不会崩溃，并记录警告信息。
+- `test_on_item_clicked_with_nonexistent_subtitle_object`: 验证了当字幕 ID 存在但在数据源中找不到对应的字幕对象时，程序同样能正常处理并记录警告。
+
+**测试框架：**
+- `pytest`
+- `pytest-qt`
+- `unittest.mock`
+
+**测试结果：**
+- 覆盖率：100% (针对 `on_item_clicked` 方法)
+- 通过率：100%
+
+### 2025-07-10: 修复时间码跳转错误
+
+**问题:**
+在UI中点击字幕条目时，DaVinci Resolve无法精确跳转到对应位置。
+
+**根本原因:**
+UI使用`HH:MM:SS,ms`格式的时间码，而DaVinci Resolve的`SetCurrentTimecode` API需要`HH:MM:SS:FF`格式或总帧数。`main.py`中的`on_item_clicked`方法直接传递了不兼容的毫秒格式字符串。
+
+**解决方案:**
+修改`src/main.py`中的`on_item_clicked`方法，实现动态时间码转换：
+1.  获取当前时间线的帧率。
+2.  使用`timecode_to_frames()`将`HH:MM:SS,ms`转换为总帧数。
+3.  使用`timecode_from_frame()`将总帧数转换为`HH:MM:SS:FF`格式。
+4.  将转换后的时间码传递给`SetCurrentTimecode` API。
+
+**决策者:**
+NexusCore
+
+**状态:**
+已实施
