@@ -316,3 +316,29 @@ NexusCore
 
 **理由:**
 该方法 (`def refresh_data(self): pass`) 是一个空实现，虽然在 `on_export_reimport_clicked` 中被调用，但它不执行任何操作。移除这个方法可以使代码更简洁，消除潜在的混淆，并防止未来的开发者错误地认为它具有某些功能。这是一个直接的代码质量改进。
+
+
+---
+### 代码实现 [Resolve Integration]
+[2025-07-11 22:12:40] - 修复了从外部命令行连接 DaVinci Resolve 失败的问题。
+
+**实现细节：**
+通过动态地将 Resolve 的脚本模块路径添加到 `sys.path`，确保 `DaVinciResolveScript` 模块可以被正确导入。创建了 `_get_resolve_bmd()` 方法来处理特定于操作系统的路径发现，并更新了 `get_resolve()` 以优先使用此新方法。
+
+**测试框架：**
+无
+
+**测试结果：**
+- 覆盖率：N/A
+- 通过率：N/A
+
+---
+**决策日期:** 2025-07-11
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 修复在命令行模式下无法连接到DaVinci Resolve的问题
+
+**决策:**
+动态检测操作系统，并将相应的DaVinci Resolve脚本模块路径添加到Python的`sys.path`中。
+
+**理由:**
+当脚本从外部命令行环境（而不是从Resolve内部）运行时，标准的Python解释器无法自动找到Resolve专有的`fusionscript`或`DaVinciResolveScript`模块。硬编码路径是不可靠的，因为它会因用户安装位置和操作系统的不同而失效。通过在运行时动态地发现正确的路径（例如，在Windows上检查`%PROGRAMDATA%`，在macOS上检查`/Library/Application Support/`）并将其添加到`sys.path`，可以确保无论脚本在何处执行，都能够成功导入必要的模块并与Resolve实例建立连接。此决策从根本上解决了环境依赖问题，使应用更具可移植性和健壮性。

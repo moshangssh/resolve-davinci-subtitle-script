@@ -2,40 +2,84 @@
 import json
 import tempfile
 import os
+import sys
+import platform
 from timecode_utils import TimecodeUtils
+
 class ResolveIntegration:
     def __init__(self):
-        self.resolve = self._get_resolve_instance()
-        if not self.resolve:
-            raise ImportError("Could not connect to DaVinci Resolve. Make sure the application is running.")
-        
-        self.project_manager = self.resolve.GetProjectManager()
+        self.resolve = self.get_resolve()
+        self.project_manager = None
+        self.project = None
+        self.timeline = None
+        self.tc_utils = None
+        if self.resolve:
+            print("LOG: INFO: DaVinci Resolve instance found. Initializing integration.")
+            self.initialized = True
+            self.initialize_resolve(self.resolve)
+        else:
+            self.initialized = False
+            print("LOG: INFO: DaVinci Resolve instance not found. Running in offline mode.")
+
+    def _get_resolve_bmd(self):
+        """
+        Dynamically adds the Resolve scripting path and returns the Resolve object.
+        """
+        if platform.system() == "Windows":
+            script_module_path = os.getenv("PROGRAMDATA") + "\\Blackmagic Design\\DaVinci Resolve\\Support\\Developer\\Scripting\\Modules\\"
+        elif platform.system() == "Darwin":
+            script_module_path = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules/"
+        else: # Linux
+            script_module_path = "/opt/resolve/libs/Fusion/Modules/"
+
+        if not os.path.exists(script_module_path):
+            print(f"LOG: ERROR: Resolve scripting module path not found: {script_module_path}")
+            return None
+
+        sys.path.append(script_module_path)
+        try:
+            import DaVinciResolveScript as bmd
+            return bmd.scriptapp("Resolve")
+        except ImportError:
+            print("LOG: ERROR: Failed to import DaVinciResolveScript module.")
+            return None
+
+    def get_resolve(self):
+        """
+        Finds and returns the DaVinci Resolve script application instance.
+        """
+        try:
+            # First, try the standard external connection method
+            return self._get_resolve_bmd()
+        except Exception:
+            # Fallback for internal/legacy environments
+            try:
+                import fusionscript
+                return fusionscript.scriptapp("Resolve")
+            except ImportError:
+                return None
+
+    def initialize_resolve(self, resolve):
+        """
+        Initializes project, timeline, and utilities using the provided Resolve instance.
+        """
+        self.project_manager = resolve.GetProjectManager()
         self.project = self.project_manager.GetCurrentProject()
         self.timeline = self.project.GetCurrentTimeline()
         try:
-            self.tc_utils = TimecodeUtils(self.resolve)
+            self.tc_utils = TimecodeUtils(resolve)
         except (TypeError, ValueError) as e:
             print(f"LOG: ERROR: Error initializing TimecodeUtils due to invalid configuration: {e}")
             self.tc_utils = None
+            self.initialized = False
+            print("LOG: WARNING: TimecodeUtils not available.")
+            return
         except Exception as e:
             print(f"LOG: CRITICAL: An unexpected error occurred during TimecodeUtils initialization: {e}")
             self.tc_utils = None
-
-    def _get_resolve_instance(self):
-        try:
-            import fusionscript
-            return fusionscript.scriptapp("Resolve")
-        except ImportError:
-            pass # Try the next import
-        try:
-            import DaVinciResolveScript as dvr_script
-            resolve_app = dvr_script.scriptapp("Resolve")
-        except ImportError:
-            return None
-
-        if resolve_app is None:
-            raise ImportError("Could not get Resolve script app instance.")
-        return resolve_app
+            self.initialized = False
+            print("LOG: WARNING: TimecodeUtils not available.")
+            return
 
     def get_current_timeline_info(self):
         if not self.timeline:
