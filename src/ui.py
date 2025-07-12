@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QStyle,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QTextDocument
 import re
 import difflib
@@ -52,11 +52,14 @@ class HtmlDelegate(QStyledItemDelegate):
         painter.restore()
 
     def setEditorData(self, editor, index):
-        # When editing starts, provide the plain text (from UserRole if available, otherwise from DisplayRole)
-        # and ensure it's clean of HTML.
-        text = index.model().data(index, Qt.DisplayRole)
-        clean_text = re.sub(r'<[^>]+>', '', text)
-        editor.setText(clean_text)
+        # When editing starts, always provide the clean, non-HTML text.
+        # We store the current clean text in the UserRole.
+        text = index.model().data(index, Qt.UserRole)
+        if text is None:
+            # Fallback for items that haven't been modified yet
+            text = index.model().data(index, Qt.DisplayRole)
+            text = re.sub(r'<[^>]+>', '', text)
+        editor.setText(text)
 
     def setModelData(self, editor, model, index):
         # When editing finishes, get the plain text from the editor
@@ -73,6 +76,11 @@ class NumericTreeWidgetItem(QTreeWidgetItem):
             return self.text(0) < other.text(0)
 
 class SubvigatorWindow(QMainWindow):
+    OriginalTextRole = Qt.UserRole + 1
+    # Signal emitted when a subtitle's clean text data has been changed by the user.
+    # Arguments: item_index (int), new_clean_text (str)
+    subtitleDataChanged = Signal(int, str)
+
     def __init__(self, resolve_integration: ResolveIntegration, parent=None):
         super().__init__(parent)
         self.resolve_integration = resolve_integration
@@ -281,25 +289,49 @@ class SubvigatorWindow(QMainWindow):
 
         new_text = item.text(1)
         clean_new_text = re.sub(r'<[^>]+>', '', new_text)
-        original_text = item.data(1, Qt.UserRole)
+        
+        # Prioritize the 'pre-replace' original text if it exists
+        original_text = item.data(1, self.OriginalTextRole)
+        
+        # Fallback to the regular UserRole text if no 'pre-replace' text is found
+        if original_text is None:
+            original_text = item.data(1, Qt.UserRole)
 
         if original_text is None:
             original_text = ""
 
         if clean_new_text == original_text:
+            # If the text is reverted to the original, clear the special role and formatting
+            self.tree.blockSignals(True)
+            item.setData(1, self.OriginalTextRole, None)
+            item.setText(1, original_text)
+            self.tree.blockSignals(False)
             return
-        
+
+        # When a user edits, we want to show the diff against the true original text.
+        # The style should reflect a "replace" operation, similar to find/replace,
+        # to maintain a consistent history of changes.
         style_config = {
-            'replace': '<font color="green">{text}</font>',
-            'insert': '<font color="green">{text}</font>',
-            'delete': '' # No visible representation for deleted text in this case
+            'delete': '<font color="red"><s>{text}</s></font>',
+            'replace': '<font color="blue">{text}</font>',
+            'insert': '<font color="blue">{text}</font>',
         }
         
         html_text = self._generate_diff_html(original_text, clean_new_text, style_config)
 
         self.tree.blockSignals(True)
         item.setText(1, html_text)
+        # Update the UserRole to store the new, clean text. This is the source of truth for the data model.
+        item.setData(1, Qt.UserRole, clean_new_text)
         self.tree.blockSignals(False)
+
+        # Emit a signal with the clean data for the controller to handle saving.
+        try:
+            item_index = int(item.text(0))
+            self.subtitleDataChanged.emit(item_index, clean_new_text)
+        except (ValueError, TypeError):
+            # Handle cases where the item index is not a valid number
+            print(f"LOG: WARNING: Could not emit subtitleDataChanged for item with non-integer index: {item.text(0)}")
 
     def find_item_by_id(self, item_id):
         """Finds a QTreeWidgetItem by its ID in the first column."""
@@ -315,6 +347,10 @@ class SubvigatorWindow(QMainWindow):
         if not item:
             return
         
+        # If this is the first replacement, store the original text
+        if item.data(1, self.OriginalTextRole) is None:
+            item.setData(1, self.OriginalTextRole, original_text)
+
         diff_html = self._generate_diff_html(original_text, new_text, {
              'delete': '<font color="red"><s>{text}</s></font>',
              'replace': '<font color="blue">{text}</font>',
@@ -325,6 +361,43 @@ class SubvigatorWindow(QMainWindow):
         item.setText(1, diff_html)
         item.setData(1, Qt.UserRole, new_text) # Update the user role with the new clean text
         self.tree.blockSignals(False)
+
+    def get_all_subtitles_data(self):
+        """
+        Retrieves all subtitle entries from the tree as a list of dictionaries,
+        ensuring the text is the clean, underlying data, not the display HTML.
+        """
+        subs_data = []
+        root = self.tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            
+            # Prioritize UserRole for the most up-to-date clean text
+            clean_text = item.data(1, Qt.UserRole)
+            
+            # If UserRole is not set (e.g., for unmodified items), get the display text and clean it
+            if clean_text is None:
+                clean_text = re.sub(r'<[^>]+>', '', item.text(1))
+
+            try:
+                index = int(item.text(0))
+            except (ValueError, TypeError):
+                index = -1 # Or some other default
+
+            try:
+                start_frame = int(item.text(4))
+            except (ValueError, TypeError):
+                start_frame = -1 # Or some other default
+
+            subs_data.append({
+                'id': index,
+                'index': index,
+                'text': clean_text,
+                'start': item.text(2),
+                'end': item.text(3),
+                'in_frame': start_frame,
+            })
+        return subs_data
         self.tree.setCurrentItem(item)
 
 
@@ -334,6 +407,10 @@ class SubvigatorWindow(QMainWindow):
         for change in changes:
             item = self.find_item_by_id(change['index'])
             if item:
+                # If this is the first replacement for this item, store its original text
+                if item.data(1, self.OriginalTextRole) is None:
+                    item.setData(1, self.OriginalTextRole, change['old'])
+
                 diff_html = self._generate_diff_html(change['old'], change['new'], {
                     'delete': '<font color="red"><s>{text}</s></font>',
                     'replace': '<font color="blue">{text}</font>',

@@ -34,6 +34,14 @@ class SubtitleManager:
     def get_subtitles(self):
         return self.subtitles_data
 
+    def set_subtitles(self, subtitles_data):
+        """
+        Sets the entire list of subtitles and saves them.
+        This is useful for bulk updates from the UI.
+        """
+        self.subtitles_data = subtitles_data
+        self._save_changes_to_json()
+
     def update_subtitle_text(self, item_id, new_text):
         """Updates the text of a single subtitle and saves the changes."""
         sub_obj = next((s for s in self.subtitles_data if s['index'] == item_id), None)

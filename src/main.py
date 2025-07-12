@@ -21,7 +21,7 @@ class ApplicationController:
         self.window.refresh_button.clicked.connect(self.on_refresh_button_clicked)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.window.tree.itemChanged.connect(self.on_item_changed)
+        self.window.subtitleDataChanged.connect(self.on_subtitle_data_changed)
         self.window.search_text.returnPressed.connect(lambda: self.window.filter_tree(self.window.search_text.text()))
         self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
         self.window.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
@@ -120,21 +120,20 @@ class ApplicationController:
         if column == 1: # Only allow editing the 'Subtitle' column
             self.window.tree.editItem(item, column)
 
-    def on_item_changed(self, item, column):
-        if column == 1:
-            try:
-                item_index = int(item.text(0))
-                new_text = item.text(1)
-                
-                if self.subtitle_manager.update_subtitle_text(item_index, new_text):
-                    print(f"LOG: INFO: Updated subtitle {item_index} in data and file.")
-                else:
-                    print(f"LOG: ERROR: Failed to update subtitle {item_index}.")
- 
-            except (ValueError, KeyError) as e:
-                print(f"LOG: ERROR: Failed to update subtitle due to invalid data: {e}")
-            except Exception as e:
-                print(f"LOG: ERROR: An unexpected error occurred while updating subtitle: {e}")
+    def on_subtitle_data_changed(self, item_index, new_text):
+        """
+        This slot is connected to the UI's subtitleDataChanged signal.
+        It receives clean data directly from the UI after an edit is finalized.
+        """
+        try:
+            # The subtitle_manager should be updated with the clean text
+            if self.subtitle_manager.update_subtitle_text(item_index, new_text):
+                print(f"LOG: INFO: Updated subtitle {item_index} in data and file with clean text.")
+            else:
+                print(f"LOG: ERROR: Failed to update subtitle {item_index} with clean text.")
+
+        except Exception as e:
+            print(f"LOG: ERROR: An unexpected error occurred while updating subtitle: {e}")
  
     def handle_replace_current(self):
         """Handles replacing the text of a single subtitle item."""
@@ -150,6 +149,9 @@ class ApplicationController:
         
         if change:
             self.window.update_item_for_replace(change['index'], change['old'], change['new'])
+            # Directly update the single subtitle in the data model,
+            # which is more efficient than a full refresh.
+            self.subtitle_manager.update_subtitle_text(change['index'], change['new'])
             self.window.find_next()
  
     def handle_replace_all(self):
@@ -161,6 +163,10 @@ class ApplicationController:
         
         if changes:
             self.window.update_all_items_for_replace(changes)
+            # After updating the UI, we must also update the underlying data model
+            # by getting all clean data from the UI and passing it to the manager.
+            all_subs_data = self.window.get_all_subtitles_data()
+            self.subtitle_manager.set_subtitles(all_subs_data)
             self.window.find_text.clear()
             self.window.replace_text.clear()
 
