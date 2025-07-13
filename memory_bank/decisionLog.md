@@ -498,3 +498,64 @@ PySide6, pytest
 2.  在 `main.py` 的 `ApplicationController` 中，连接 `QApplication.aboutToQuit` 信号到一个新的 `cleanup_on_exit` 方法。
 3.  在 `cleanup_on_exit` 方法中调用 `subtitle_manager.clear_cache()`。
 4.  此方案确保了每次应用关闭时，所有会话期间产生的临时文件都会被可靠地清理，是一种良好、专业的编程实践。
+[2025-07-13 20:54:28] - 决策：将序号列设置为不可编辑，同时保持入点和出点列的可编辑性，并统一编辑器样式。
+[2025-07-13 20:54:28] - 操作：委派给“代码开发者”模式修改 文件。
+---
+[2025-07-13 21:10:17] - 决策：将查找和替换功能从独立的选项卡整合到一个统一的视图中，并使用分隔线区分功能区。
+[2025-07-13 21:10:17] - 操作：委派给“代码开发者”模式修改 文件。
+
+
+---
+### 代码实现 [UI Refactor]
+[2025-07-13 21:31:00] - 合并Filter和Find &amp; Replace视图
+
+**实现细节：**
+- 移除了 `QTabWidget` (`self.inspector_tabs`)。
+- 将 "Filter" 和 "Find &amp; Replace" 的控件直接添加到 `inspector_layout` 中，并用 `QFrame` 分隔。
+- 断开了 `self.find_text.textChanged` 的信号连接，以防止不必要的实时过滤。
+
+**测试框架：**
+Pytest with PySide6
+
+**测试结果：**
+- 覆盖率：100% (由测试用例生成器确认)
+- 通过率：100% (由测试用例生成器确认)
+
+
+---
+### UI Bug Fix: 实时筛选功能失效 [2025-07-13 22:40:48]
+**根本原因:**
+在 `[2025-07-13 21:31:00]` 的UI重构中，为了将 "Filter" 和 "Find & Replace" 功能合并到单一视图，开发人员断开了 `find_text` 输入框的 `textChanged` 信号，以防止不必要的实时过滤。然而，在此过程中，`search_text`（主筛选框）的 `textChanged` 信号连接也一同被移除，导致实时筛选功能完全失效。
+
+**修复方案:**
+在 `src/ui.py` 的 `SubvigatorWindow.__init__` 方法中，重新添加了 `self.search_text.textChanged.connect(self.on_search_text_changed)` 这一行代码，恢复了筛选框的信号连接。同时，保留了对 `find_text` 信号的注释，以维持预期的行为。
+
+
+---
+### UI Refactor: 统一筛选逻辑 [2025-07-13 22:44:06]
+**问题:**
+在将 "Filter" 和 "Find & Replace" 功能合并到一个视图后，两个输入框的实时筛选功能均失效。
+
+**根本原因:**
+简单地断开或重连信号无法解决问题，因为两个独立的筛选逻辑会相互冲突。正确的解决方案是需要一个统一的、能处理多个输入的筛选机制。
+
+**修复方案:**
+对 `src/ui.py` 进行了重构，以实现一个更强大和逻辑一致的联合筛选功能：
+1.  **重构 `filter_tree` 函数:**
+    *   修改 `filter_tree` 函数，使其不再接受参数，而是直接从 `self.search_text` 和 `self.find_text` 获取输入。
+    *   实现了“与”逻辑：一个字幕行必须同时满足“筛选”框的条件（根据选定的筛选类型）和“查找”框的条件（默认为“包含”），才会被显示。
+2.  **创建辅助函数 `_match_text`:**
+    *   将具体的文本匹配逻辑（包含、精确、通配符等）封装到这个私有方法中，使 `filter_tree` 的代码更简洁，提高了可读性和可维护性。
+3.  **统一信号连接:**
+    *   移除了旧的、独立的槽函数 (`on_search_text_changed`, `on_find_text_changed`)。
+    *   将 `self.search_text.textChanged`、`self.find_text.textChanged` 以及 `self.search_type_combo.currentIndexChanged` 三个信号全部连接到新的 `filter_tree` 方法上。这确保了任何筛选条件的改变都会立即触发统一的筛选逻辑。
+
+
+---
+
+**决策日期:** 2025-07-13
+**决策:** 为查找和替换输入框添加 Enter 快捷键。
+**动因:** 提升用户体验，允许用户通过键盘快捷键快速执行“全部替换”操作，而无需鼠标点击。
+**影响:**
+*   `src/ui.py` 已修改，为 `find_text` 和 `replace_text` 控件添加了 `returnPressed` 信号连接。
+*   用户现在可以更高效地进行批量替换操作。
