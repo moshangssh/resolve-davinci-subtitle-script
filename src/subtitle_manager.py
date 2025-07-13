@@ -34,6 +34,10 @@ class SubtitleManager:
         return self.subtitles_data
 
     def get_subtitles(self):
+        for sub in self.subtitles_data:
+            # Also remove HTML tags for accurate counting, similar to saving
+            clean_text = re.sub(r'<[^>]+>', '', sub.get('text', ''))
+            sub['char_count'] = len(clean_text)
         return self.subtitles_data
 
     def set_subtitles(self, subtitles_data):

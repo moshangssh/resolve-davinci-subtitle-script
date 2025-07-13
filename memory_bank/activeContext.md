@@ -1,2 +1,9 @@
 # Active Context
-This file serves as a temporary workspace for the currently active sub-task. Its content will be cleared and archived by NexusCore upon task completion.
+
+## 当前任务: 字幕字符数统计与状态预警 (2025-07-13)
+
+**目标:** 实现一个实时显示字幕字符数并根据长度进行颜色预警的功能。
+
+**子任务:**
+1.  **后端逻辑实现:** 在 `subtitle_manager.py` 或相关模块中，增加计算每个字幕条目字符数的功能。
+2.  **UI界面更新:** 在 `ui.py` 中，修改UI以展示新的'len'列，并根据字符数应用不同的颜色样式。

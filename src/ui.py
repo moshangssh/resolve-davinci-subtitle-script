@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QTextDocument, QFont, QPalette, QColor
+from PySide6.QtGui import QTextDocument, QFont, QPalette, QColor, QPainter, QPen, QBrush
 import re
 import difflib
 import os
@@ -190,6 +190,50 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 """
 
+class CharCountDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option, index):
+        super().paint(painter, option, index) # Draw background and selection
+
+        char_count_str = index.data()
+        if not char_count_str or not char_count_str.isdigit():
+            return
+
+        char_count = int(char_count_str)
+
+        # Determine color based on character count
+        color = QColor("#28a745") if char_count <= 15 else QColor("#dc3545")
+
+        # --- Circle Drawing Logic ---
+        rect = option.rect
+        # Make the circle a bit smaller than the cell height
+        diameter = min(rect.width(), rect.height()) - 14
+        radius = diameter / 2.0
+
+        # Center the circle in the cell
+        x = rect.x() + (rect.width() - diameter) / 2
+        y = rect.y() + (rect.height() - diameter) / 2
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Draw the circle background
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.NoPen) # No border for the circle
+        painter.drawEllipse(x, y, diameter, diameter)
+
+        # --- Text Drawing Logic ---
+        # Set text color
+        painter.setPen(QPen(Qt.white))
+        # Set font size relative to circle size
+        font = painter.font()
+        font.setPixelSize(int(radius))
+        painter.setFont(font)
+        
+        # Draw text centered in the circle
+        painter.drawText(int(x), int(y), int(diameter), int(diameter), Qt.AlignCenter, char_count_str)
+
+        painter.restore()
+
 class HtmlDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super(HtmlDelegate, self).__init__(parent)
@@ -197,7 +241,7 @@ class HtmlDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         # Only create an editor for columns that should be editable.
-        if index.column() in [1, 2, 3]: # Subtitle, In, Out
+        if index.column() in [2, 3, 4]: # Subtitle, In, Out
             editor = super().createEditor(parent, option, index)
             if isinstance(editor, QLineEdit):
                 editor.setFrame(False)
@@ -340,17 +384,21 @@ class SubvigatorWindow(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setAlternatingRowColors(True)
-        self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(['#', 'Subtitle', 'In', 'Out', 'StartFrame'])
-        self.tree.setColumnHidden(4, True) # StartFrame is data-only
+        self.tree.setColumnCount(6)
+        self.tree.setHeaderLabels(['#', 'len', 'Subtitle', 'In', 'Out', 'StartFrame'])
+        self.tree.setColumnHidden(5, True) # StartFrame is data-only
 
         header = self.tree.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents) # #
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents) # len
+        header.setSectionResizeMode(2, QHeaderView.Stretch)          # Subtitle
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents) # In
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents) # Out
+        
+        self.char_count_delegate = CharCountDelegate(self.tree)
         self.html_delegate = HtmlDelegate(self.tree)
-        self.tree.setItemDelegate(self.html_delegate)
+        self.tree.setItemDelegateForColumn(1, self.char_count_delegate)
+        self.tree.setItemDelegateForColumn(2, self.html_delegate)
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
@@ -441,13 +489,14 @@ class SubvigatorWindow(QMainWindow):
             item = NumericTreeWidgetItem(self.tree)
             item.setText(0, str(sub.get('index', sub.get('id', ''))))
             text = sub.get('text', '')
-            item.setText(1, text)
-            item.setData(1, Qt.UserRole, text)
-            item.setData(1, self.OriginalTextRole, text) # Ensure original text is stored from the start
+            item.setText(1, str(len(text)))
+            item.setText(2, text)
+            item.setData(2, Qt.UserRole, text)
+            item.setData(2, self.OriginalTextRole, text) # Ensure original text is stored from the start
             item.setFlags(item.flags() | Qt.ItemIsEditable)
-            item.setText(2, sub.get('start', sub.get('in_timecode', '')))
-            item.setText(3, sub.get('end', sub.get('out_timecode', '')))
-            item.setText(4, str(sub.get('in_frame', '')))
+            item.setText(3, sub.get('start', sub.get('in_timecode', '')))
+            item.setText(4, sub.get('end', sub.get('out_timecode', '')))
+            item.setText(5, str(sub.get('in_frame', '')))
             if hide:
                 item.setHidden(True)
         self.tree.sortItems(0, Qt.AscendingOrder)
@@ -465,7 +514,7 @@ class SubvigatorWindow(QMainWindow):
 
         for i in range(root.childCount()):
             item = root.child(i)
-            subtitle_text = item.text(1) # Subtitle text is now in column 1
+            subtitle_text = item.text(2) # Subtitle text is now in column 2
             
             matches = False
             if not filter_text:
@@ -514,7 +563,7 @@ class SubvigatorWindow(QMainWindow):
 
         while item_iterator.value():
             item = item_iterator.value()
-            if find_text in item.text(1):
+            if find_text in item.text(2):
                 self.tree.setCurrentItem(item)
                 self.tree.scrollToItem(item)
                 return
@@ -524,13 +573,13 @@ class SubvigatorWindow(QMainWindow):
         item_iterator = QTreeWidgetItemIterator(self.tree, QTreeWidgetItemIterator.All)
         while item_iterator.value() and item_iterator.value() != start_item:
             item = item_iterator.value()
-            if find_text in item.text(1):
+            if find_text in item.text(2):
                 self.tree.setCurrentItem(item)
                 self.tree.scrollToItem(item)
                 return
             item_iterator += 1
         # Check the start item itself if we've wrapped
-        if start_item and find_text in start_item.text(1) and self.tree.currentItem() != start_item:
+        if start_item and find_text in start_item.text(2) and self.tree.currentItem() != start_item:
              self.tree.setCurrentItem(start_item)
              self.tree.scrollToItem(start_item)
 
@@ -552,18 +601,18 @@ class SubvigatorWindow(QMainWindow):
         return html_text
 
     def on_subtitle_edited(self, item, column):
-        if column != 1:
+        if column != 2:
             return
 
-        new_text = item.text(1)
+        new_text = item.text(2)
         clean_new_text = re.sub(r'<[^>]+>', '', new_text)
         
         # Prioritize the 'pre-replace' original text if it exists
-        original_text = item.data(1, self.OriginalTextRole)
+        original_text = item.data(2, self.OriginalTextRole)
         
         # Fallback to the regular UserRole text if no 'pre-replace' text is found
         if original_text is None:
-            original_text = item.data(1, Qt.UserRole)
+            original_text = item.data(2, Qt.UserRole)
 
         if original_text is None:
             original_text = ""
@@ -571,9 +620,10 @@ class SubvigatorWindow(QMainWindow):
         if clean_new_text == original_text:
             # If the text is reverted to the original, clear the special role and formatting
             self.tree.blockSignals(True)
-            item.setData(1, self.OriginalTextRole, None)
-            item.setText(1, original_text)
-            item.setData(1, Qt.UserRole, original_text) # Also reset UserRole
+            item.setText(1, str(len(original_text)))
+            item.setData(2, self.OriginalTextRole, None)
+            item.setText(2, original_text)
+            item.setData(2, Qt.UserRole, original_text) # Also reset UserRole
             self.tree.blockSignals(False)
             return
 
@@ -589,9 +639,10 @@ class SubvigatorWindow(QMainWindow):
         html_text = self._generate_diff_html(original_text, clean_new_text, style_config)
 
         self.tree.blockSignals(True)
-        item.setText(1, html_text)
+        item.setText(1, str(len(clean_new_text)))
+        item.setText(2, html_text)
         # Update the UserRole to store the new, clean text. This is the source of truth for the data model.
-        item.setData(1, Qt.UserRole, clean_new_text)
+        item.setData(2, Qt.UserRole, clean_new_text)
         # The OriginalTextRole should NOT be updated here. It must always hold the initial text.
         self.tree.blockSignals(False)
 
@@ -620,11 +671,11 @@ class SubvigatorWindow(QMainWindow):
             return
         
         # If this is the first replacement, store the original text
-        if item.data(1, self.OriginalTextRole) is None:
-            item.setData(1, self.OriginalTextRole, original_text)
+        if item.data(2, self.OriginalTextRole) is None:
+            item.setData(2, self.OriginalTextRole, original_text)
 
         # The original_text for the diff should be the one from OriginalTextRole if available
-        base_text = item.data(1, self.OriginalTextRole) or original_text
+        base_text = item.data(2, self.OriginalTextRole) or original_text
 
         diff_html = self._generate_diff_html(base_text, new_text, {
              'delete': '<font color="red"><s>{text}</s></font>',
@@ -633,8 +684,8 @@ class SubvigatorWindow(QMainWindow):
         })
 
         self.tree.blockSignals(True)
-        item.setText(1, diff_html)
-        item.setData(1, Qt.UserRole, new_text) # Update the user role with the new clean text
+        item.setText(2, diff_html)
+        item.setData(2, Qt.UserRole, new_text) # Update the user role with the new clean text
         # DO NOT update OriginalTextRole here. It's set once and preserved.
         self.tree.blockSignals(False)
 
@@ -649,11 +700,11 @@ class SubvigatorWindow(QMainWindow):
             item = root.child(i)
             
             # Prioritize UserRole for the most up-to-date clean text
-            clean_text = item.data(1, Qt.UserRole)
+            clean_text = item.data(2, Qt.UserRole)
             
             # If UserRole is not set (e.g., for unmodified items), get the display text and clean it
             if clean_text is None:
-                clean_text = re.sub(r'<[^>]+>', '', item.text(1))
+                clean_text = re.sub(r'<[^>]+>', '', item.text(2))
 
             try:
                 index = int(item.text(0))
@@ -661,7 +712,7 @@ class SubvigatorWindow(QMainWindow):
                 index = -1 # Or some other default
 
             try:
-                start_frame = int(item.text(4))
+                start_frame = int(item.text(5))
             except (ValueError, TypeError):
                 start_frame = -1 # Or some other default
 
@@ -669,8 +720,8 @@ class SubvigatorWindow(QMainWindow):
                 'id': index,
                 'index': index,
                 'text': clean_text,
-                'start': item.text(2),
-                'end': item.text(3),
+                'start': item.text(3),
+                'end': item.text(4),
                 'in_frame': start_frame,
             })
         return subs_data
@@ -684,19 +735,19 @@ class SubvigatorWindow(QMainWindow):
             item = self.find_item_by_id(change['index'])
             if item:
                 # If this is the first replacement for this item, store its original text
-                if item.data(1, self.OriginalTextRole) is None:
-                    item.setData(1, self.OriginalTextRole, change['old'])
+                if item.data(2, self.OriginalTextRole) is None:
+                    item.setData(2, self.OriginalTextRole, change['old'])
                 
                 # The original_text for the diff should be the one from OriginalTextRole if available
-                base_text = item.data(1, self.OriginalTextRole) or change['old']
+                base_text = item.data(2, self.OriginalTextRole) or change['old']
 
                 diff_html = self._generate_diff_html(base_text, change['new'], {
                     'delete': '<font color="red"><s>{text}</s></font>',
                     'replace': '<font color="blue">{text}</font>',
                     'insert': '<font color="blue">{text}</font>',
                 })
-                item.setText(1, diff_html)
-                item.setData(1, Qt.UserRole, change['new'])
+                item.setText(2, diff_html)
+                item.setData(2, Qt.UserRole, change['new'])
                 # DO NOT update OriginalTextRole here. It's set once and preserved.
 
         self.tree.blockSignals(False)
