@@ -2,6 +2,7 @@ import re
 import json
 import os
 import tempfile
+import shutil
 
 class SubtitleManager:
     """
@@ -12,6 +13,7 @@ class SubtitleManager:
         self.subtitles_data = []
         self.raw_obj_map = {}
         self.current_json_path = None
+        self.is_dirty = False
         self.cache_dir = os.path.join(tempfile.gettempdir(), 'subvigator_cache')
         self.current_track_index = None
 
@@ -48,6 +50,7 @@ class SubtitleManager:
         if sub_obj:
             sub_obj['text'] = new_text
             self._save_changes_to_json()
+            self.is_dirty = True
             return True
         return False
 
@@ -79,7 +82,7 @@ class SubtitleManager:
                 sub_obj['text'] = new_text
         
         if changes:
-            self._save_changes_to_json()
+            self.is_dirty = True
         
         return changes
 
@@ -106,3 +109,11 @@ class SubtitleManager:
                 json.dump(output_data, f, ensure_ascii=False, indent=2)
         except (IOError, TypeError) as e:
             print(f"Failed to auto-save subtitle changes: {e}")
+
+    def clear_cache(self):
+        """
+        Clears the entire subtitle cache directory.
+        """
+        if os.path.exists(self.cache_dir):
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+            print(f"Cache directory {self.cache_dir} cleared.")

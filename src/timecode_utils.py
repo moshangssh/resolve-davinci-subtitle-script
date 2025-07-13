@@ -84,7 +84,10 @@ class TimecodeUtils:
         return [16, 18, 23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 72, 95.904, 96, 100, 119.88, 120]
 
     def get_fraction(self, frame_rate_string_or_number):
-        frame_rate = float(str(frame_rate_string_or_number))
+        try:
+            frame_rate = float(str(frame_rate_string_or_number))
+        except ValueError:
+            raise ValueError(f'Invalid frame rate format: {frame_rate_string_or_number}')
         for fr in self.get_frame_rates():
             if fr == frame_rate or math.floor(fr) == frame_rate:
                 is_decimal = fr % 1 > 0
@@ -98,17 +101,21 @@ class TimecodeUtils:
         return float(f"{fraction['num'] / fraction['den']:.3f}")
 
     def frame_from_timecode(self, timecode, frame_rate):
-        rate_frac = self.get_fraction(frame_rate)
-        tc = self.ffi.new("struct AVTimecode *")
-        rate = self.ffi.new("struct AVRational", rate_frac)
-        timecode_bytes = timecode.encode('utf-8')
-        
-        result = self.libavutil.av_timecode_init_from_string(tc, rate, timecode_bytes, self.ffi.NULL)
-        if result != 0:
-            raise RuntimeError(f"avutil error code: {result}")
-        return tc.start
+        try:
+            rate_frac = self.get_fraction(frame_rate)
+            tc = self.ffi.new("struct AVTimecode *")
+            rate = self.ffi.new("struct AVRational", rate_frac)
+            timecode_bytes = timecode.encode('utf-8')
+            
+            result = self.libavutil.av_timecode_init_from_string(tc, rate, timecode_bytes, self.ffi.NULL)
+            if result != 0:
+                raise RuntimeError(f"avutil error code: {result}")
+            return tc.start
+        except (RuntimeError, ValueError) as e:
+            raise ValueError(f'Invalid timecode format: {timecode} - {e}')
 
     def timecode_from_frame(self, frame, frame_rate, drop_frame=False):
+        frame = max(0, frame)
         # 1. 获取帧率的十进制表示
         decimal_fps = self.get_decimal(frame_rate)
 
@@ -143,6 +150,7 @@ class TimecodeUtils:
 
     @staticmethod
     def timecode_to_srt_format(frame, frame_rate):
+        frame = max(0, frame)
         if frame_rate == 0:
             return "00:00:00,000"
             

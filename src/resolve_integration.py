@@ -4,7 +4,7 @@ import tempfile
 import os
 import sys
 import platform
-from timecode_utils import TimecodeUtils
+from .timecode_utils import TimecodeUtils
 
 class ResolveIntegration:
     def __init__(self):
@@ -82,64 +82,105 @@ class ResolveIntegration:
             return
 
     def get_current_timeline_info(self):
+        """
+        Safely retrieves timeline information.
+
+        Returns:
+            tuple: (dict, None) on success, (None, str) on failure.
+        """
         if not self.timeline:
-            return None
-        return {
-            'frame_rate': self.timeline.GetSetting('timelineFrameRate'),
-            'track_count': self.timeline.GetTrackCount('subtitle'),
-        }
+            return None, "No active timeline."
+        try:
+            info = {
+                'frame_rate': self.timeline.GetSetting('timelineFrameRate'),
+                'track_count': self.timeline.GetTrackCount('subtitle'),
+            }
+            return info, None
+        except Exception as e:
+            return None, f"Failed to get timeline info: {e}"
 
     def get_subtitles(self, track_number=1):
+        """
+        Safely retrieves subtitles from a specific track.
+
+        Returns:
+            tuple: (list, None) on success, (None, str) on failure.
+        """
         if not self.timeline:
-            return []
-        return self.timeline.GetItemListInTrack('subtitle', track_number)
+            return None, "No active timeline."
+        try:
+            subtitles = self.timeline.GetItemListInTrack('subtitle', track_number)
+            return subtitles, None
+        except Exception as e:
+            return None, f"Failed to get subtitles for track {track_number}: {e}"
     def get_subtitles_with_timecode(self, track_number=1):
+        """
+        Safely retrieves subtitles with their timecode information.
+
+        Returns:
+            tuple: (list, None) on success, (None, str) on failure.
+        """
         if not self.timeline:
-            return []
-
-        frame_rate = self.timeline.GetSetting('timelineFrameRate')
-        drop_frame = self.timeline.GetSetting('timelineDropFrame') == '1'
-
-        subtitles = self.get_subtitles(track_number)
-        if not subtitles:
-            return []
-
+            return None, "No active timeline."
         if not self.tc_utils:
-            print("LOG: WARNING: TimecodeUtils not available.")
-            return []
+            return None, "TimecodeUtils not available."
 
-        subtitle_list = []
-        for i, sub_obj in enumerate(subtitles):
-            in_frame = sub_obj.GetStart()
-            out_frame = sub_obj.GetEnd()
+        try:
+            frame_rate = self.timeline.GetSetting('timelineFrameRate')
+            
+            subtitles, err = self.get_subtitles(track_number)
+            if err:
+                return None, err
+            
+            if not subtitles:
+                return [], None # Return empty list if no subtitles, not an error
 
-            subtitle_list.append({
-                'id': i + 1,
-                'text': sub_obj.GetName(),
-                'in_frame': in_frame,
-                'out_frame': out_frame,
-                'in_timecode': self.tc_utils.timecode_to_srt_format(in_frame, frame_rate),
-                'out_timecode': self.tc_utils.timecode_to_srt_format(out_frame, frame_rate),
-                'raw_obj': sub_obj,
-            })
-        return subtitle_list
+            subtitle_list = []
+            for i, sub_obj in enumerate(subtitles):
+                in_frame = sub_obj.GetStart()
+                out_frame = sub_obj.GetEnd()
+
+                subtitle_list.append({
+                    'id': i + 1,
+                    'text': sub_obj.GetName(),
+                    'in_frame': in_frame,
+                    'out_frame': out_frame,
+                    'in_timecode': self.tc_utils.timecode_to_srt_format(in_frame, frame_rate),
+                    'out_timecode': self.tc_utils.timecode_to_srt_format(out_frame, frame_rate),
+                    'raw_obj': sub_obj,
+                })
+            return subtitle_list, None
+        except Exception as e:
+            return None, f"Failed to get subtitles with timecode: {e}"
 
     def set_active_subtitle_track(self, track_index: int):
-        if not self.timeline:
-            return False
-        
-        subtitle_track_count = self.timeline.GetTrackCount("subtitle")
-        if track_index < 1 or track_index > subtitle_track_count:
-            return False
+        """
+        Safely sets the active subtitle track.
 
-        for i in range(1, subtitle_track_count + 1):
-            self.timeline.SetTrackEnable("subtitle", i, i == track_index)
+        Returns:
+            tuple: (bool, None) on success, (None, str) on failure.
+        """
+        if not self.timeline:
+            return None, "No active timeline."
         
-        return True
+        try:
+            subtitle_track_count = self.timeline.GetTrackCount("subtitle")
+            if track_index < 1 or track_index > subtitle_track_count:
+                return False, f"Track index {track_index} is out of bounds."
+
+            for i in range(1, subtitle_track_count + 1):
+                self.timeline.SetTrackEnable("subtitle", i, i == track_index)
+            
+            return True, None
+        except Exception as e:
+            return None, f"Failed to set active subtitle track: {e}"
     def export_subtitles_to_json(self, track_number=1):
-        subtitles = self.get_subtitles_with_timecode(track_number)
-        if not subtitles:
+        subtitles, error = self.get_subtitles_with_timecode(track_number)
+        if error:
+            print(f"LOG: ERROR: Could not export subtitles to JSON due to: {error}")
             return None
+        if not subtitles:
+            return []
 
         output_data = []
         for sub in subtitles:
@@ -156,7 +197,10 @@ class ResolveIntegration:
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
 
-        timeline_info = self.get_current_timeline_info()
+        timeline_info, error = self.get_current_timeline_info()
+        if error:
+            print(f"LOG: ERROR: Could not cache tracks, failed to get timeline info: {error}")
+            return
         if not timeline_info:
             return
 
@@ -177,7 +221,10 @@ class ResolveIntegration:
         if not self.timeline:
             return None
 
-        subtitles = self.get_subtitles_with_timecode(track_number)
+        subtitles, error = self.get_subtitles_with_timecode(track_number)
+        if error:
+            print(f"LOG: ERROR: Could not export to SRT, failed to get subtitles: {error}")
+            return None
         if not subtitles:
             return ""
 
@@ -224,85 +271,65 @@ class ResolveIntegration:
         """
         Re-imports subtitles from a JSON file onto a new, isolated
         subtitle track at the correct timecode.
+        Returns:
+            tuple: (bool, None) on success, (None, str) on failure.
         """
         if not self.timeline or not self.project or not self.tc_utils:
-            print("LOG: ERROR: No active timeline, project, or timecode utility.")
-            return False
-
-        media_pool = self.project.GetMediaPool()
-        if not media_pool:
-            print("LOG: ERROR: Could not get Media Pool.")
-            return False
+            return None, "No active timeline, project, or timecode utility."
 
         try:
-            # 1. Read JSON and convert to SRT
+            media_pool = self.project.GetMediaPool()
+            if not media_pool:
+                return None, "Could not get Media Pool."
+
             with open(json_path, 'r', encoding='utf-8') as f:
                 subtitle_data = json.load(f)
 
             if not subtitle_data:
-                print("LOG: INFO: No subtitles to import from JSON.")
-                return False
+                return False, "No subtitles to import from JSON."
 
             frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
             timeline_start_frame = self.timeline.GetStartFrame()
             srt_content = self._convert_json_to_srt(json_path, frame_rate, offset_frames=timeline_start_frame)
 
-            # Use a named temporary file to securely handle the SRT content
             with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.srt', encoding='utf-8') as tmp_srt_file:
                 tmp_srt_file.write(srt_content)
                 srt_file_path = tmp_srt_file.name
 
             try:
-                # 2. Import the zero-based SRT into the Media Pool
                 imported_media = media_pool.ImportMedia([srt_file_path])
                 if not imported_media:
-                    print("LOG: ERROR: Failed to import SRT file.")
-                    return False
+                    return None, "Failed to import SRT file into Media Pool."
                 subtitle_pool_item = imported_media[0]
 
-                # 3. Create a new track and isolate it by disabling all others
                 self.timeline.AddTrack("subtitle")
                 new_track_count = self.timeline.GetTrackCount("subtitle")
                 for i in range(1, new_track_count + 1):
                     self.timeline.SetTrackEnable("subtitle", i, i == new_track_count)
-                print(f"INFO: New track created at index {new_track_count} and isolated.")
-
-                # 4. Set playhead to the original start position
+                
                 first_subtitle_start_tc = subtitle_data[0]['start']
-                # This calculation remains based on absolute timecode, which is correct
                 first_subtitle_frame = TimecodeUtils.timecode_to_frames(first_subtitle_start_tc, frame_rate)
                 target_timecode = self.tc_utils.timecode_from_frame(first_subtitle_frame, frame_rate, self.timeline.GetSetting('timelineDropFrame') == '1')
                 self.timeline.SetCurrentTimecode(target_timecode)
-                print(f"INFO: Playhead moved to original start time: {target_timecode}.")
 
-                # 5. Append the clip to the isolated track at the playhead
                 if not media_pool.AppendToTimeline(subtitle_pool_item):
-                    print("LOG: ERROR: Failed to append clip to the timeline.")
-                    # Re-enable tracks even on failure
+                    # Re-enable tracks even on failure for safety
                     for i in range(1, new_track_count + 1):
                         self.timeline.SetTrackEnable("subtitle", i, True)
-                    return False
-                
-                # 6. Only the new subtitle track remains enabled.
-                # for i in range(1, new_track_count + 1):
-                #     self.timeline.SetTrackEnable("subtitle", i, True)
+                    return None, "Failed to append clip to the timeline."
 
                 print("LOG: SUCCESS: Subtitles re-imported and placed correctly on a new, isolated track.")
-                return True
+                return True, None
             finally:
-                # Ensure the temporary file is cleaned up
                 if os.path.exists(srt_file_path):
                     os.remove(srt_file_path)
 
         except (IOError, json.JSONDecodeError) as e:
-            print(f"LOG: FATAL: File or JSON processing error during re-import: {e}")
-            return False
+            return None, f"File or JSON processing error: {e}"
         except (KeyError, IndexError) as e:
-            print(f"LOG: FATAL: Data structure error in JSON file: {e}")
-            return False
+            return None, f"Data structure error in JSON file: {e}"
         except Exception as e:
-            print(f"LOG: CRITICAL: An unexpected exception occurred during re-import: {e}")
-            return False
+            return None, f"An unexpected exception occurred: {e}"
 
     def _convert_json_to_srt(self, json_path: str, frame_rate: float, offset_frames: int = 0) -> str:
         """

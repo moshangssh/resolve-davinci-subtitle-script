@@ -15,39 +15,248 @@ from PySide6.QtWidgets import (
     QTreeWidgetItemIterator,
     QStyledItemDelegate,
     QStyle,
+    QHeaderView,
+    QTabWidget,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QTextDocument
+from PySide6.QtGui import QTextDocument, QFont, QPalette, QColor
 import re
 import difflib
-from resolve_integration import ResolveIntegration
+import os
+from .resolve_integration import ResolveIntegration
+
+
+STYLE_SHEET = """
+/* 仿 ChatGPT 官网主题 v1.0.0 */
+/* 作者：https://linux.do/u/nianbroken/ */
+/* Converted to QSS for PySide6 */
+
+/* 全局样式 */
+QMainWindow, QWidget {
+    background-color: #f9f9f9; /* --color-background */
+    color: #0d0d0d; /* --color-primary */
+    font-family: "苹方-简", "Inter", "Roboto", "Source Han Sans", sans-serif;
+    font-size: 10pt;
+}
+
+/* 检查器面板 */
+#inspectorPanel {
+    background-color: #ffffff; /* --chat-background */
+    border: 1px solid #c2c2c2;
+    border-radius: 12px;
+}
+
+/* 树状组件 (字幕列表) */
+QTreeWidget {
+    background-color: #ffffff; /* --chat-background */
+    border: 1px solid #eaeaea; /* --color-background-soft */
+    border-radius: 12px;
+    color: #383a42;
+}
+
+QHeaderView::section {
+    background-color: #f9f9f9; /* --navbar-background */
+    color: #0d0d0d;
+    padding: 4px;
+    border: none;
+    border-bottom: 1px solid #eaeaea;
+}
+
+QTreeWidget::item {
+    padding: 8px;
+    border-radius: 1.5rem; /* from .bubble .message-content-container */
+}
+
+QTreeWidget::item:selected, QTreeWidget::item:selected:alternate {
+    background-color: #3266d0;
+    color: #ffffff;
+}
+
+QTreeWidget::item:alternate {
+    background-color: #f4f4f4; /* --chat-background-user */
+}
+
+/* 选项卡样式 */
+QTabWidget::pane {
+    border-top: 1px solid #eaeaea;
+}
+
+QTabBar::tab {
+    background: #f9f9f9;
+    border: 1px solid #eaeaea;
+    border-bottom-color: #f9f9f9; /* same as pane color */
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    min-width: 8ex;
+    padding: 8px;
+}
+
+QTabBar::tab:selected, QTabBar::tab:hover {
+    background: #ffffff;
+}
+
+QTabBar::tab:!selected {
+    margin-top: 2px; /* make non-selected tabs look smaller */
+}
+
+/* 输入框和下拉框 */
+QLineEdit, QComboBox {
+    background-color: #f9f9f9;
+    border: 1px solid #c2c2c2;
+    border-radius: 8px;
+    padding: 8px;
+    color: #383a42;
+    font-family: "JetBrainsMono Nerd Font Mono", "苹方-简", monospace;
+}
+
+QLineEdit:focus, QComboBox:focus, QLineEdit:hover, QComboBox:hover {
+    border: 1px solid #3266d0;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left-width: 1px;
+    border-left-color: #c2c2c2;
+    border-left-style: solid;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+QComboBox::down-arrow {
+    image: url(arrow_down.svg);
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox::down-arrow:on {
+    image: url(arrow_up.svg);
+}
+
+/* 按钮 */
+QPushButton {
+    background-color: #f4f4f4; /* --chat-background-user */
+    color: #0d0d0d;
+    border: 1px solid #c2c2c2;
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+QPushButton:hover {
+    background-color: #eaeaea; /* --color-background-soft */
+}
+
+QPushButton:pressed {
+    background-color: #3266d0;
+    color: #ffffff;
+    border-color: #3266d0;
+}
+
+/* 标签 */
+QLabel {
+    color: #5d5d5d;
+}
+
+/* 滚动条 */
+QScrollBar:vertical {
+    border: none;
+    background: #f9f9f9;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #c2c2c2;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: #f9f9f9;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #c2c2c2;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+"""
 
 class HtmlDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super(HtmlDelegate, self).__init__(parent)
         self.doc = QTextDocument(self)
 
+    def createEditor(self, parent, option, index):
+        # Only create an editor for columns that should be editable.
+        if index.column() in [1, 2, 3]: # Subtitle, In, Out
+            editor = super().createEditor(parent, option, index)
+            if isinstance(editor, QLineEdit):
+                editor.setFrame(False)
+                palette = editor.palette()
+                palette.setColor(QPalette.Base, Qt.transparent)
+                palette.setColor(QPalette.Text, QColor("#0d0d0d"))
+                editor.setPalette(palette)
+                editor.setStyleSheet("padding: 0px; border: 0px;")
+            return editor
+        else:
+            # For non-editable columns (like '#'), return None to prevent editing.
+            return None
+
     def paint(self, painter, option, index):
         options = option
         self.initStyleOption(options, index)
 
+        # Force a uniform selection color, overriding any alternate row color
+        if options.state & QStyle.State_Selected:
+            options.palette.setColor(QPalette.Highlight, QColor("#3266d0"))
+            options.palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+
         painter.save()
 
-        self.doc.setHtml(options.text)
-
-        # Remove the original text to avoid drawing it twice.
+        # We must draw the background and selection effects before anything else.
+        # To prevent the default delegate from drawing the text, we clear it.
+        original_text = options.text
         options.text = ""
-        # Draw the background and selection state.
         style = options.widget.style()
         style.drawControl(QStyle.CE_ItemViewItem, options, painter)
 
-        # Adjust the rectangle for drawing the document.
-        # This is a basic adjustment; more complex scenarios might need more tuning.
-        textRect = style.subElementRect(QStyle.SE_ItemViewItemText, options)
-        painter.translate(textRect.topLeft())
-        painter.setClipRect(textRect.translated(-textRect.topLeft()))
-        
-        self.doc.drawContents(painter)
+        # A more robust check for the editing state, directly querying the view.
+        # This is the definitive fix for the overlapping text issue.
+        view = self.parent()
+        is_editing = (view.state() == QAbstractItemView.EditingState) and (view.currentIndex() == index)
+
+        if not is_editing:
+            # Restore the original text to render it via QTextDocument
+            self.doc.setHtml(original_text)
+
+            # Get the rectangle for the text and draw the HTML document inside it.
+            textRect = style.subElementRect(QStyle.SE_ItemViewItemText, options)
+
+            # --- Start of Vertical Centering Logic ---
+            # Set the available width for the document to calculate its height correctly.
+            self.doc.setTextWidth(textRect.width())
+            textHeight = self.doc.size().height()
+
+            # Calculate the vertical offset to center the text.
+            offsetY = (textRect.height() - textHeight) / 2.0
+
+            # Translate the painter to the new starting point, including the offset.
+            painter.translate(textRect.x(), textRect.y() + offsetY)
+            
+            # Clip the painter to the actual text area to prevent drawing outside bounds.
+            painter.setClipRect(0, 0, textRect.width(), textHeight)
+            
+            self.doc.drawContents(painter)
+            # --- End of Vertical Centering Logic ---
 
         painter.restore()
 
@@ -84,13 +293,36 @@ class SubvigatorWindow(QMainWindow):
     def __init__(self, resolve_integration: ResolveIntegration, parent=None):
         super().__init__(parent)
         self.resolve_integration = resolve_integration
-        self.setWindowTitle("xdd sub")
-        self.setGeometry(100, 100, 380, 700)
+        self.setWindowTitle("Subvigator - DaVinci Resolve Subtitle Editor")
+        self.setGeometry(100, 100, 1200, 800) # Increased default size
+
+        # --- Dynamic Stylesheet Injection ---
+        # Get the absolute path to the directory containing this script (ui.py)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Construct absolute paths for the SVG icons
+        arrow_down_path = os.path.join(script_dir, "arrow_down.svg").replace("\\", "/")
+        arrow_up_path = os.path.join(script_dir, "arrow_up.svg").replace("\\", "/")
+        
+        # Inject the absolute paths into the stylesheet
+        dynamic_style_sheet = STYLE_SHEET.replace(
+            "url(arrow_down.svg)", f"url({arrow_down_path})"
+        ).replace(
+            "url(arrow_up.svg)", f"url({arrow_up_path})"
+        )
+
+        # Apply global font and stylesheet
+        font = QFont("Inter", 10)
+        self.setFont(font)
+        self.setStyleSheet(dynamic_style_sheet)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
-        self.main_layout = QVBoxLayout(self.central_widget)
+        # Main layout is now horizontal
+        self.main_layout = QHBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.main_layout.setSpacing(8)
 
         self._create_widgets()
         self._setup_layouts()
@@ -107,15 +339,18 @@ class SubvigatorWindow(QMainWindow):
         self.search_type_combo.addItems(['Contains', 'Exact', 'Starts With', 'Ends With', 'Wildcard'])
 
         self.tree = QTreeWidget()
+        self.tree.setAlternatingRowColors(True)
         self.tree.setColumnCount(5)
         self.tree.setHeaderLabels(['#', 'Subtitle', 'In', 'Out', 'StartFrame'])
-        self.tree.setColumnWidth(0, 40)  # #
-        self.tree.setColumnWidth(1, 180) # Subtitle
-        self.tree.setColumnWidth(2, 80)  # In
-        self.tree.setColumnWidth(3, 80)  # Out
-        self.tree.setColumnHidden(4, True) # StartFrame
+        self.tree.setColumnHidden(4, True) # StartFrame is data-only
+
+        header = self.tree.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.html_delegate = HtmlDelegate(self.tree)
-        self.tree.setItemDelegateForColumn(1, self.html_delegate)
+        self.tree.setItemDelegate(self.html_delegate)
 
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("Refresh")
@@ -132,35 +367,67 @@ class SubvigatorWindow(QMainWindow):
         self.replace_button = QPushButton("Replace")
         self.replace_all_button = QPushButton("Replace All")
 
+        # Tab Widget for inspector
+        self.inspector_tabs = QTabWidget()
+
     def _setup_layouts(self):
+        # --- Right Panel (Inspector) ---
+        inspector_panel = QWidget()
+        inspector_panel.setObjectName("inspectorPanel") # For styling
+        inspector_layout = QVBoxLayout(inspector_panel)
+        inspector_layout.setContentsMargins(10, 10, 10, 10)
+        inspector_layout.setSpacing(8)
+
+        # --- Filter Tab ---
+        filter_tab = QWidget()
+        filter_layout = QVBoxLayout(filter_tab)
+        filter_layout.setContentsMargins(0, 10, 0, 0)
+        
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_text)
-        search_layout.addWidget(self.search_type_combo)
-        self.main_layout.addLayout(search_layout)
+        filter_layout.addLayout(search_layout)
+        filter_layout.addWidget(self.search_type_combo)
+        filter_layout.addStretch()
 
-        find_replace_layout = QHBoxLayout()
+        # --- Find/Replace Tab ---
+        find_replace_tab = QWidget()
+        find_replace_layout = QVBoxLayout(find_replace_tab)
+        find_replace_layout.setContentsMargins(0, 10, 0, 0)
+
         find_replace_layout.addWidget(self.find_label)
         find_replace_layout.addWidget(self.find_text)
         find_replace_layout.addWidget(self.replace_label)
         find_replace_layout.addWidget(self.replace_text)
-        self.main_layout.addLayout(find_replace_layout)
-
+        
         find_replace_buttons_layout = QHBoxLayout()
         find_replace_buttons_layout.addWidget(self.find_next_button)
         find_replace_buttons_layout.addWidget(self.replace_button)
         find_replace_buttons_layout.addWidget(self.replace_all_button)
-        self.main_layout.addLayout(find_replace_buttons_layout)
+        
+        find_replace_layout.addLayout(find_replace_buttons_layout)
+        find_replace_layout.addStretch()
 
+        # Add tabs to the tab widget
+        self.inspector_tabs.addTab(filter_tab, "Filter")
+        self.inspector_tabs.addTab(find_replace_tab, "Find & Replace")
 
-        self.main_layout.addWidget(self.tree)
+        inspector_layout.addWidget(self.inspector_tabs)
 
+        # Bottom controls
         bottom_layout = QHBoxLayout()
         bottom_layout.addWidget(self.track_combo)
-        bottom_layout.addSpacing(10)
         bottom_layout.addWidget(self.refresh_button)
-        bottom_layout.addWidget(self.export_reimport_button)
-        self.main_layout.addLayout(bottom_layout)
+        inspector_layout.addLayout(bottom_layout)
+        inspector_layout.addWidget(self.export_reimport_button)
+
+        # --- Main Layout ---
+        # Left side: Tree Widget
+        self.main_layout.addWidget(self.tree, 2) # 2/3 of the space
+
+        # Right side: Inspector Panel
+        self.main_layout.addWidget(inspector_panel, 1) # 1/3 of the space
+
 
     def populate_table(self, subs_data, hide=False):
         self.tree.blockSignals(True)
@@ -176,6 +443,7 @@ class SubvigatorWindow(QMainWindow):
             text = sub.get('text', '')
             item.setText(1, text)
             item.setData(1, Qt.UserRole, text)
+            item.setData(1, self.OriginalTextRole, text) # Ensure original text is stored from the start
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setText(2, sub.get('start', sub.get('in_timecode', '')))
             item.setText(3, sub.get('end', sub.get('out_timecode', '')))
@@ -299,12 +567,13 @@ class SubvigatorWindow(QMainWindow):
 
         if original_text is None:
             original_text = ""
-
+        
         if clean_new_text == original_text:
             # If the text is reverted to the original, clear the special role and formatting
             self.tree.blockSignals(True)
             item.setData(1, self.OriginalTextRole, None)
             item.setText(1, original_text)
+            item.setData(1, Qt.UserRole, original_text) # Also reset UserRole
             self.tree.blockSignals(False)
             return
 
@@ -323,6 +592,7 @@ class SubvigatorWindow(QMainWindow):
         item.setText(1, html_text)
         # Update the UserRole to store the new, clean text. This is the source of truth for the data model.
         item.setData(1, Qt.UserRole, clean_new_text)
+        # The OriginalTextRole should NOT be updated here. It must always hold the initial text.
         self.tree.blockSignals(False)
 
         # Emit a signal with the clean data for the controller to handle saving.
@@ -331,7 +601,9 @@ class SubvigatorWindow(QMainWindow):
             self.subtitleDataChanged.emit(item_index, clean_new_text)
         except (ValueError, TypeError):
             # Handle cases where the item index is not a valid number
-            print(f"LOG: WARNING: Could not emit subtitleDataChanged for item with non-integer index: {item.text(0)}")
+            # Handle cases where the item index is not a valid number
+            # For now, we just suppress the error. A more robust solution might log this.
+            pass
 
     def find_item_by_id(self, item_id):
         """Finds a QTreeWidgetItem by its ID in the first column."""
@@ -351,7 +623,10 @@ class SubvigatorWindow(QMainWindow):
         if item.data(1, self.OriginalTextRole) is None:
             item.setData(1, self.OriginalTextRole, original_text)
 
-        diff_html = self._generate_diff_html(original_text, new_text, {
+        # The original_text for the diff should be the one from OriginalTextRole if available
+        base_text = item.data(1, self.OriginalTextRole) or original_text
+
+        diff_html = self._generate_diff_html(base_text, new_text, {
              'delete': '<font color="red"><s>{text}</s></font>',
              'replace': '<font color="blue">{text}</font>',
              'insert': '<font color="blue">{text}</font>',
@@ -360,6 +635,7 @@ class SubvigatorWindow(QMainWindow):
         self.tree.blockSignals(True)
         item.setText(1, diff_html)
         item.setData(1, Qt.UserRole, new_text) # Update the user role with the new clean text
+        # DO NOT update OriginalTextRole here. It's set once and preserved.
         self.tree.blockSignals(False)
 
     def get_all_subtitles_data(self):
@@ -410,12 +686,17 @@ class SubvigatorWindow(QMainWindow):
                 # If this is the first replacement for this item, store its original text
                 if item.data(1, self.OriginalTextRole) is None:
                     item.setData(1, self.OriginalTextRole, change['old'])
+                
+                # The original_text for the diff should be the one from OriginalTextRole if available
+                base_text = item.data(1, self.OriginalTextRole) or change['old']
 
-                diff_html = self._generate_diff_html(change['old'], change['new'], {
+                diff_html = self._generate_diff_html(base_text, change['new'], {
                     'delete': '<font color="red"><s>{text}</s></font>',
                     'replace': '<font color="blue">{text}</font>',
                     'insert': '<font color="blue">{text}</font>',
                 })
                 item.setText(1, diff_html)
                 item.setData(1, Qt.UserRole, change['new'])
+                # DO NOT update OriginalTextRole here. It's set once and preserved.
+
         self.tree.blockSignals(False)

@@ -1,0 +1,16 @@
+{
+  "currentState": "initialized",
+  "stateHistory": [
+    {
+      "from": "initial",
+      "command": "init",
+      "timestamp": "2025-07-13T04:57:59.701Z",
+      "args": [
+        {
+          "workingDirectory": "c:\\Users\\xdd\\Desktop\\resolve-davinci-subtitle-script"
+        }
+      ]
+    }
+  ],
+  "lastUpdated": "2025-07-13T04:57:59.716Z"
+}

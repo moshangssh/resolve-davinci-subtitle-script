@@ -58,7 +58,7 @@ def test_frame_from_timecode_error(mock_resolve, mock_cffi):
     """Test frame_from_timecode with an avutil error."""
     mock_cffi["libavutil"].av_timecode_init_from_string.return_value = -1
     utils = TimecodeUtils(mock_resolve)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError, match="Invalid timecode format: invalid"):
         utils.frame_from_timecode("invalid", 24)
 
 def test_get_decimal(mock_resolve, mock_cffi):
@@ -76,5 +76,30 @@ def test_get_fraction(mock_resolve, mock_cffi):
 def test_get_fraction_invalid_rate(mock_resolve, mock_cffi):
     """Test get_fraction with an invalid frame rate."""
     utils = TimecodeUtils(mock_resolve)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid frame rate: 999"):
         utils.get_fraction(999)
+
+def test_get_fraction_invalid_format(mock_resolve, mock_cffi):
+    """Test get_fraction with a non-numeric frame rate."""
+    utils = TimecodeUtils(mock_resolve)
+    with pytest.raises(ValueError, match="Invalid frame rate format: abc"):
+        utils.get_fraction("abc")
+
+def test_timecode_to_srt_format_negative_frame():
+    """Test timecode_to_srt_format with a negative frame number."""
+    # This should be handled gracefully, returning the same as frame 0
+    assert TimecodeUtils.timecode_to_srt_format(-100, 24) == "00:00:00,000"
+
+def test_timecode_from_frame_negative_input(mock_resolve, mock_cffi):
+    """Test timecode_from_frame with a negative frame number."""
+    mock_cffi["ffi"].string.return_value.decode.return_value = "00:00:00:00"
+    utils = TimecodeUtils(mock_resolve)
+    # The function should treat negative frame as 0
+    tc = utils.timecode_from_frame(-10, 24)
+    assert tc == "00:00:00:00"
+    # Check that the C function was called with 0
+    mock_cffi["libavutil"].av_timecode_make_string.assert_called()
+    # Get the arguments of the last call
+    args, _ = mock_cffi["libavutil"].av_timecode_make_string.call_args
+    # The frame number is the 3rd argument (index 2)
+    assert args[2] == 0

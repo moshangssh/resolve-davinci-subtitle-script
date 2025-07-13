@@ -4,10 +4,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 import os
 
-from resolve_integration import ResolveIntegration
-from timecode_utils import TimecodeUtils
-from ui import SubvigatorWindow
-from subtitle_manager import SubtitleManager
+from .resolve_integration import ResolveIntegration
+from .timecode_utils import TimecodeUtils
+from .ui import SubvigatorWindow
+from .subtitle_manager import SubtitleManager
 
 class ApplicationController:
     def __init__(self, resolve_integration, subtitle_manager, timecode_utils):
@@ -16,7 +16,15 @@ class ApplicationController:
         self.subtitle_manager = subtitle_manager
         self.timecode_utils = timecode_utils
         self.window = SubvigatorWindow(self.resolve_integration)
+        self.app.aboutToQuit.connect(self.cleanup_on_exit)
         
+    def cleanup_on_exit(self):
+        """
+        Cleans up resources when the application is about to quit.
+        """
+        print("LOG: INFO: Application is about to quit. Cleaning up cache.")
+        self.subtitle_manager.clear_cache()
+
     def connect_signals(self):
         self.window.refresh_button.clicked.connect(self.on_refresh_button_clicked)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
@@ -33,44 +41,65 @@ class ApplicationController:
         )
  
  
+    def show_error_message(self, text, title="操作失败"):
+       """
+       Displays a critical error message box.
+       """
+       msg_box = QMessageBox()
+       msg_box.setIcon(QMessageBox.Critical)
+       msg_box.setText(text)
+       msg_box.setWindowTitle(title)
+       msg_box.setStandardButtons(QMessageBox.Ok)
+       msg_box.exec()
+
     def on_export_reimport_clicked(self):
         if self.window.track_combo.currentIndex() < 0:
-            msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Warning)
-            msg_box.setText("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。")
-            msg_box.setWindowTitle("未选择轨道")
-            msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec()
-            return
+           self.show_error_message("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。", "未选择轨道")
+           return
 
         if self.subtitle_manager.current_json_path is None:
-            print("LOG: ERROR: No JSON file path is set, please select a track first.")
-            # Also show a message box here for consistency, as this is a fallback.
-            msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Warning)
-            msg_box.setText("无法获取轨道文件路径。请刷新并重试。")
-            msg_box.setWindowTitle("操作失败")
-            msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec()
-            return
+           print("LOG: ERROR: No JSON file path is set, please select a track first.")
+           self.show_error_message("无法获取轨道文件路径。请刷新并重试。")
+           return
 
         print("LOG: INFO: Starting export and re-import process.")
-        self.resolve_integration.reimport_from_json_file(self.subtitle_manager.current_json_path)
- 
+        success, error = self.resolve_integration.reimport_from_json_file(self.subtitle_manager.current_json_path)
+        if error:
+           self.show_error_message(f"导入/导出失败: {error}")
+        else:
+           self.subtitle_manager.is_dirty = False
+           QMessageBox.information(self.window, "成功", "字幕已成功重新导入到新的轨道。")
+
+
     def on_track_changed(self, index):
         if index < 0:
             return
 
         track_index = index + 1
-        self.resolve_integration.set_active_subtitle_track(track_index)
+        success, error = self.resolve_integration.set_active_subtitle_track(track_index)
+        if error:
+           self.show_error_message(f"切换轨道失败: {error}")
+           return
+
         subtitles = self.subtitle_manager.load_subtitles(track_index)
         self.window.populate_table(subs_data=subtitles)
         self.window.filter_tree(self.window.search_text.text())
 
     def on_refresh_button_clicked(self):
+        if self.subtitle_manager.is_dirty:
+            reply = QMessageBox.question(self.window, '未同步的修改',
+                                         "您有未同步到Resolve的修改。要继续刷新并放弃这些更改吗？",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
         self.resolve_integration.cache_all_subtitle_tracks()
-        timeline_info = self.resolve_integration.get_current_timeline_info()
+        timeline_info, error = self.resolve_integration.get_current_timeline_info()
+        if error:
+           self.show_error_message(f"刷新失败: {error}")
+           return
         if not timeline_info:
+            self.show_error_message("未能获取时间线信息，请确保DaVinci Resolve中已打开项目和时间线。")
             return
 
         self.window.track_combo.clear()
@@ -95,7 +124,10 @@ class ApplicationController:
                 print(f"LOG: WARNING: Failed to get subtitle object for ID {item_id}")
                 return
 
-            timeline_info = self.resolve_integration.get_current_timeline_info()
+            timeline_info, error = self.resolve_integration.get_current_timeline_info()
+            if error:
+               self.show_error_message(f"无法导航到时间码: {error}")
+               return
             if not timeline_info:
                 print("LOG: WARNING: Could not get timeline info.")
                 return
@@ -163,10 +195,8 @@ class ApplicationController:
         
         if changes:
             self.window.update_all_items_for_replace(changes)
-            # After updating the UI, we must also update the underlying data model
-            # by getting all clean data from the UI and passing it to the manager.
-            all_subs_data = self.window.get_all_subtitles_data()
-            self.subtitle_manager.set_subtitles(all_subs_data)
+            # After updating the UI, directly save the changes in the manager
+            self.subtitle_manager._save_changes_to_json()
             self.window.find_text.clear()
             self.window.replace_text.clear()
 
