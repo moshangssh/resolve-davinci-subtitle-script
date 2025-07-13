@@ -349,7 +349,7 @@ class SubvigatorWindow(QMainWindow):
     def __init__(self, resolve_integration: ResolveIntegration, parent=None):
         super().__init__(parent)
         self.resolve_integration = resolve_integration
-        self.setWindowTitle("Subvigator - 达芬奇字幕编辑器")
+        self.setWindowTitle("xdd - 字幕编辑器")
         self.setGeometry(100, 100, 1200, 800) # Increased default size
 
         # --- Dynamic Stylesheet Injection ---

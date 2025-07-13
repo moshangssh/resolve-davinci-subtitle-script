@@ -15,10 +15,11 @@ This project is a Python port of the "Andy's Subvigator" DaVinci Resolve script,
 ├── Andys Subvigator.lua  (Original Script)
 ├── memory_bank/
 ├── README.md
-└── subvigator/
+└── src/
     ├── __init__.py
     ├── main.py
     ├── resolve_integration.py
+    ├── subtitle_manager.py
     ├── timecode_utils.py
     └── ui.py
 

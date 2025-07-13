@@ -6,12 +6,12 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, './src')
 
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
-from main import ApplicationController
+from src.main import ApplicationController
 
 @pytest.fixture
 def mock_resolve_integration():
     mock = MagicMock()
-    mock.get_current_timeline_info.return_value = {'frame_rate': 24.0}
+    mock.get_current_timeline_info.return_value = ({'frame_rate': 24.0}, None)
     mock.timeline.SetCurrentTimecode.return_value = True
     return mock
 
@@ -54,7 +54,6 @@ def controller(mock_resolve_integration, mock_subtitle_manager, mock_data_model,
         controller = ApplicationController(
             resolve_integration=mock_resolve_integration,
             subtitle_manager=mock_subtitle_manager,
-            data_model=mock_data_model,
             timecode_utils=mock_timecode_utils
         )
         # Manually populate the tree for the test
@@ -76,7 +75,7 @@ def test_on_item_clicked_jumps_to_correct_timecode(controller, mock_resolve_inte
     controller.on_item_clicked(item_to_click, column_to_click)
 
     # THEN the timecode utilities are called with the correct parameters
-    frame_rate = mock_resolve_integration.get_current_timeline_info()['frame_rate']
+    frame_rate = mock_resolve_integration.get_current_timeline_info()[0]['frame_rate']
     mock_timecode_utils.timecode_to_frames.assert_called_once_with('00:00:10,500', frame_rate)
     
     # AND the resolve integration is called to set the new timecode

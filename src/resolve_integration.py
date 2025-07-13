@@ -4,7 +4,8 @@ import tempfile
 import os
 import sys
 import platform
-from .timecode_utils import TimecodeUtils
+from src.timecode_utils import TimecodeUtils
+from src.format_converter import convert_json_to_srt, format_subtitles_to_srt
 
 class ResolveIntegration:
     def __init__(self):
@@ -221,50 +222,40 @@ class ResolveIntegration:
         if not self.timeline:
             return None
 
-        subtitles, error = self.get_subtitles_with_timecode(track_number)
+        subtitles_with_tc, error = self.get_subtitles_with_timecode(track_number)
         if error:
             print(f"LOG: ERROR: Could not export to SRT, failed to get subtitles: {error}")
             return None
-        if not subtitles:
+        if not subtitles_with_tc:
             return ""
 
         frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
         timeline_start_timecode = self.timeline.GetStartTimecode()
-        
-        # 检查时间线是否从01:00:00:00开始，并计算偏移量
-        offset_frames = 0
         is_one_hour_start = timeline_start_timecode.startswith("01:")
         timeline_start_frame = self.timeline.GetStartFrame()
-        
-        # 如果是基于0的导出，起始帧就是时间线的绝对起始帧
-        # 如果不是基于0的导出，并且时间线不是从1小时开始，那么我们认为它是从0开始的
-        base_frame = timeline_start_frame if zero_based else 0
-        
-        # 如果不是基于0的导出，并且时间线是从1小时开始的，那么基准帧就是1小时的帧数
-        if not zero_based and is_one_hour_start:
+
+        # Determine the base frame to calculate relative timecodes
+        base_frame = 0
+        if zero_based:
+            base_frame = timeline_start_frame
+        elif is_one_hour_start:
+            # If not zero-based and starts at 1 hour, the timecode is relative to the 1-hour mark
             base_frame = int(frame_rate * 3600)
+        
+        # The offset is only for the format converter, which expects an offset from a zero-based timeline.
+        offset_frames = base_frame
 
+        # Prepare subtitle list for the centralized converter
+        subs_for_conversion = []
+        for sub in subtitles_with_tc:
+            subs_for_conversion.append({
+                "start": sub['in_timecode'],
+                "end": sub['out_timecode'],
+                "text": sub['text']
+            })
 
-        srt_content = ""
-        for i, sub in enumerate(subtitles):
-            # 从绝对帧号中减去基准帧号，得到相对帧号
-            start_frame = sub['in_frame'] - (0 if zero_based and is_one_hour_start else base_frame)
-            end_frame = sub['out_frame'] - (0 if zero_based and is_one_hour_start else base_frame)
-
-            # 如果是基于0的导出，但时间线是从1小时开始的，需要额外减去1小时的偏移
-            if zero_based and is_one_hour_start:
-                offset_frames = int(frame_rate * 3600)
-                start_frame -= offset_frames
-                end_frame -= offset_frames
-
-
-            start_time = self.tc_utils.timecode_to_srt_format(start_frame, frame_rate)
-            end_time = self.tc_utils.timecode_to_srt_format(end_frame, frame_rate)
-            
-            srt_content += f"{i + 1}\n"
-            srt_content += f"{start_time} --> {end_time}\n"
-            srt_content += f"{sub['text']}\n\n"
-
+        # Generate SRT content using the centralized function
+        srt_content = format_subtitles_to_srt(subs_for_conversion, frame_rate, offset_frames)
         return srt_content
 
     def reimport_from_json_file(self, json_path):
@@ -290,7 +281,7 @@ class ResolveIntegration:
 
             frame_rate = float(self.timeline.GetSetting('timelineFrameRate'))
             timeline_start_frame = self.timeline.GetStartFrame()
-            srt_content = self._convert_json_to_srt(json_path, frame_rate, offset_frames=timeline_start_frame)
+            srt_content = convert_json_to_srt(json_path, frame_rate, offset_frames=timeline_start_frame)
 
             with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.srt', encoding='utf-8') as tmp_srt_file:
                 tmp_srt_file.write(srt_content)
@@ -331,38 +322,4 @@ class ResolveIntegration:
         except Exception as e:
             return None, f"An unexpected exception occurred: {e}"
 
-    def _convert_json_to_srt(self, json_path: str, frame_rate: float, offset_frames: int = 0) -> str:
-        """
-        Reads a JSON file with subtitle data and converts it into an SRT formatted string.
-        """
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                subtitles = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error reading or parsing JSON file: {e}")
-            return ""
-
-        srt_content = []
-        for i, sub in enumerate(subtitles):
-            try:
-                # Convert to frames and then apply the offset to make it zero-based
-                start_frames = TimecodeUtils.timecode_to_frames(sub['start'], frame_rate) - offset_frames
-                end_frames = TimecodeUtils.timecode_to_frames(sub['end'], frame_rate) - offset_frames
-
-                # Ensure frames are not negative after offset
-                start_frames = max(0, start_frames)
-                end_frames = max(0, end_frames)
-
-                start_time = TimecodeUtils.timecode_to_srt_format(start_frames, frame_rate)
-                end_time = TimecodeUtils.timecode_to_srt_format(end_frames, frame_rate)
-
-                srt_content.append(f"{i + 1}")
-                srt_content.append(f"{start_time} --> {end_time}")
-                srt_content.append(sub['text'])
-                srt_content.append("")  # Add a blank line after each entry
-            except (KeyError, ValueError) as e:
-                print(f"Skipping invalid subtitle entry at index {i}: {e}")
-                continue
-                
-        return "\n".join(srt_content)
 

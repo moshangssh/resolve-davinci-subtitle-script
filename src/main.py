@@ -4,10 +4,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 import os
 
-from .resolve_integration import ResolveIntegration
-from .timecode_utils import TimecodeUtils
-from .ui import SubvigatorWindow
-from .subtitle_manager import SubtitleManager
+from src.resolve_integration import ResolveIntegration
+from src.timecode_utils import TimecodeUtils
+from src.ui import SubvigatorWindow
+from src.subtitle_manager import SubtitleManager
 
 class ApplicationController:
     def __init__(self, resolve_integration, subtitle_manager, timecode_utils):
@@ -59,7 +59,7 @@ class ApplicationController:
 
         if self.subtitle_manager.current_json_path is None:
            print("LOG: ERROR: No JSON file path is set, please select a track first.")
-           self.show_error_message("无法获取轨道文件路径。请刷新并重试。")
+           self.show_error_message("无法获取字幕文件。请重新获取。")
            return
 
         print("LOG: INFO: Starting export and re-import process.")
@@ -68,7 +68,7 @@ class ApplicationController:
            self.show_error_message(f"导入/导出失败: {error}")
         else:
            self.subtitle_manager.is_dirty = False
-           QMessageBox.information(self.window, "成功", "字幕已成功重新导入到新的轨道。")
+           QMessageBox.information(self.window, "成功", "字幕已成功导入到新的轨道。")
 
 
     def on_track_changed(self, index):
@@ -88,7 +88,7 @@ class ApplicationController:
     def on_refresh_button_clicked(self):
         if self.subtitle_manager.is_dirty:
             reply = QMessageBox.question(self.window, '未同步的修改',
-                                         "您有未同步到Resolve的修改。要继续刷新并放弃这些更改吗？",
+                                         "您有未同步到DaVinci Resolve的修改。要继续刷新并放弃这些更改吗？",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 return

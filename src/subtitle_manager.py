@@ -1,4 +1,5 @@
 import re
+from .utils import clean_html
 import json
 import os
 import tempfile
@@ -36,7 +37,7 @@ class SubtitleManager:
     def get_subtitles(self):
         for sub in self.subtitles_data:
             # Also remove HTML tags for accurate counting, similar to saving
-            clean_text = re.sub(r'<[^>]+>', '', sub.get('text', ''))
+            clean_text = clean_html(sub.get('text', ''))
             sub['char_count'] = len(clean_text)
         return self.subtitles_data
 
@@ -101,7 +102,7 @@ class SubtitleManager:
         try:
             output_data = []
             for sub in self.subtitles_data:
-                clean_text = re.sub(r'<[^>]+>', '', sub.get('text', ''))
+                clean_text = clean_html(sub.get('text', ''))
                 output_data.append({
                     "index": sub.get('index'),
                     "start": sub.get('start'),
