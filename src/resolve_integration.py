@@ -17,7 +17,9 @@ class ResolveIntegration:
         if self.resolve:
             print("LOG: INFO: DaVinci Resolve instance found. Initializing integration.")
             self.initialized = True
-            self.initialize_resolve(self.resolve)
+            self.project_manager = self.resolve.GetProjectManager()
+            self.project = self.project_manager.GetCurrentProject()
+            self.timeline = self.project.GetCurrentTimeline()
         else:
             self.initialized = False
             print("LOG: INFO: DaVinci Resolve instance not found. Running in offline mode.")
@@ -60,27 +62,18 @@ class ResolveIntegration:
             except ImportError:
                 return None
 
-    def initialize_resolve(self, resolve):
-        """
-        Initializes project, timeline, and utilities using the provided Resolve instance.
-        """
-        self.project_manager = resolve.GetProjectManager()
-        self.project = self.project_manager.GetCurrentProject()
-        self.timeline = self.project.GetCurrentTimeline()
-        try:
-            self.tc_utils = TimecodeUtils(resolve)
-        except (TypeError, ValueError) as e:
-            print(f"LOG: ERROR: Error initializing TimecodeUtils due to invalid configuration: {e}")
-            self.tc_utils = None
-            self.initialized = False
-            print("LOG: WARNING: TimecodeUtils not available.")
-            return
-        except Exception as e:
-            print(f"LOG: CRITICAL: An unexpected error occurred during TimecodeUtils initialization: {e}")
-            self.tc_utils = None
-            self.initialized = False
-            print("LOG: WARNING: TimecodeUtils not available.")
-            return
+    def get_timecode_utils(self):
+        if self.tc_utils is None:
+            print("LOG: INFO: TimecodeUtils is being initialized on first use...")
+            try:
+                self.tc_utils = TimecodeUtils(self.resolve)
+            except (TypeError, ValueError) as e:
+                print(f"LOG: ERROR: Error initializing TimecodeUtils due to invalid configuration: {e}")
+                self.tc_utils = None # Keep it None on failure
+            except Exception as e:
+                print(f"LOG: CRITICAL: An unexpected error occurred during TimecodeUtils initialization: {e}")
+                self.tc_utils = None # Keep it None on failure
+        return self.tc_utils
 
     def get_current_timeline_info(self):
         """
@@ -123,7 +116,8 @@ class ResolveIntegration:
         """
         if not self.timeline:
             return None, "No active timeline."
-        if not self.tc_utils:
+        tc_utils = self.get_timecode_utils()
+        if not tc_utils:
             return None, "TimecodeUtils not available."
 
         try:
@@ -146,8 +140,8 @@ class ResolveIntegration:
                     'text': sub_obj.GetName(),
                     'in_frame': in_frame,
                     'out_frame': out_frame,
-                    'in_timecode': self.tc_utils.timecode_to_srt_format(in_frame, frame_rate),
-                    'out_timecode': self.tc_utils.timecode_to_srt_format(out_frame, frame_rate),
+                    'in_timecode': tc_utils.timecode_to_srt_format(in_frame, frame_rate),
+                    'out_timecode': tc_utils.timecode_to_srt_format(out_frame, frame_rate),
                     'raw_obj': sub_obj,
                 })
             return subtitle_list, None
@@ -265,7 +259,8 @@ class ResolveIntegration:
         Returns:
             tuple: (bool, None) on success, (None, str) on failure.
         """
-        if not self.timeline or not self.project or not self.tc_utils:
+        tc_utils = self.get_timecode_utils()
+        if not self.timeline or not self.project or not tc_utils:
             return None, "No active timeline, project, or timecode utility."
 
         try:
@@ -300,7 +295,7 @@ class ResolveIntegration:
                 
                 first_subtitle_start_tc = subtitle_data[0]['start']
                 first_subtitle_frame = TimecodeUtils.timecode_to_frames(first_subtitle_start_tc, frame_rate)
-                target_timecode = self.tc_utils.timecode_from_frame(first_subtitle_frame, frame_rate, self.timeline.GetSetting('timelineDropFrame') == '1')
+                target_timecode = tc_utils.timecode_from_frame(first_subtitle_frame, frame_rate, self.timeline.GetSetting('timelineDropFrame') == '1')
                 self.timeline.SetCurrentTimecode(target_timecode)
 
                 if not media_pool.AppendToTimeline(subtitle_pool_item):

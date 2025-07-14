@@ -1,0 +1,161 @@
+/* 仿 ChatGPT 官网主题 v1.0.0 */
+/* 作者：https://linux.do/u/nianbroken/ */
+/* Converted to QSS for PySide6 */
+
+/* 全局样式 */
+QMainWindow, QWidget {
+    background-color: #f9f9f9; /* --color-background */
+    color: #0d0d0d; /* --color-primary */
+    font-family: "苹方-简", "Inter", "Roboto", "Source Han Sans", sans-serif;
+    font-size: 10pt;
+}
+
+/* 检查器面板 */
+#inspectorPanel {
+    background-color: #ffffff; /* --chat-background */
+    border: 1px solid #c2c2c2;
+    border-radius: 12px;
+}
+
+/* 树状组件 (字幕列表) */
+QTreeWidget {
+    background-color: #ffffff; /* --chat-background */
+    border: 1px solid #eaeaea; /* --color-background-soft */
+    border-radius: 12px;
+    color: #383a42;
+}
+
+QHeaderView::section {
+    background-color: #f9f9f9; /* --navbar-background */
+    color: #0d0d0d;
+    padding: 4px;
+    border: none;
+    border-bottom: 1px solid #eaeaea;
+}
+
+QTreeWidget::item {
+    padding: 8px;
+    border-radius: 1.5rem; /* from .bubble .message-content-container */
+}
+
+QTreeWidget::item:selected, QTreeWidget::item:selected:alternate {
+    background-color: #3266d0;
+    color: #ffffff;
+}
+
+QTreeWidget::item:alternate {
+    background-color: #f4f4f4; /* --chat-background-user */
+}
+
+/* 选项卡样式 */
+QTabWidget::pane {
+    border-top: 1px solid #eaeaea;
+}
+
+QTabBar::tab {
+    background: #f9f9f9;
+    border: 1px solid #eaeaea;
+    border-bottom-color: #f9f9f9; /* same as pane color */
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    min-width: 8ex;
+    padding: 8px;
+}
+
+QTabBar::tab:selected, QTabBar::tab:hover {
+    background: #ffffff;
+}
+
+QTabBar::tab:!selected {
+    margin-top: 2px; /* make non-selected tabs look smaller */
+}
+
+/* 输入框和下拉框 */
+QLineEdit, QComboBox {
+    background-color: #f9f9f9;
+    border: 1px solid #c2c2c2;
+    border-radius: 8px;
+    padding: 8px;
+    color: #383a42;
+    font-family: "JetBrainsMono Nerd Font Mono", "苹方-简", monospace;
+}
+
+QLineEdit:focus, QComboBox:focus, QLineEdit:hover, QComboBox:hover {
+    border: 1px solid #3266d0;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left-width: 1px;
+    border-left-color: #c2c2c2;
+    border-left-style: solid;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+QComboBox::down-arrow {
+    image: url(arrow_down.svg);
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox::down-arrow:on {
+    image: url(arrow_up.svg);
+}
+
+/* 按钮 */
+QPushButton {
+    background-color: #f4f4f4; /* --chat-background-user */
+    color: #0d0d0d;
+    border: 1px solid #c2c2c2;
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+QPushButton:hover {
+    background-color: #eaeaea; /* --color-background-soft */
+}
+
+QPushButton:pressed {
+    background-color: #3266d0;
+    color: #ffffff;
+    border-color: #3266d0;
+}
+
+/* 标签 */
+QLabel {
+    color: #5d5d5d;
+    background-color: transparent;
+}
+
+/* 滚动条 */
+QScrollBar:vertical {
+    border: none;
+    background: #f9f9f9;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #c2c2c2;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: #f9f9f9;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #c2c2c2;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}

@@ -5,16 +5,18 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 import os
 
 from src.resolve_integration import ResolveIntegration
-from src.timecode_utils import TimecodeUtils
 from src.ui import SubvigatorWindow
 from src.subtitle_manager import SubtitleManager
+from src.services import AppService
+
 
 class ApplicationController:
-    def __init__(self, resolve_integration, subtitle_manager, timecode_utils):
+    def __init__(self, resolve_integration, subtitle_manager):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.resolve_integration = resolve_integration
         self.subtitle_manager = subtitle_manager
-        self.timecode_utils = timecode_utils
+        # self.timecode_utils is now loaded on demand
+        self.app_service = AppService(self.resolve_integration, self.subtitle_manager)
         self.window = SubvigatorWindow(self.resolve_integration)
         self.app.aboutToQuit.connect(self.cleanup_on_exit)
         
@@ -26,17 +28,18 @@ class ApplicationController:
         self.subtitle_manager.clear_cache()
 
     def connect_signals(self):
-        self.window.refresh_button.clicked.connect(self.on_refresh_button_clicked)
+        self.window.inspector.refresh_button.clicked.connect(self.on_refresh_button_clicked)
         self.window.tree.itemClicked.connect(self.on_item_clicked)
         self.window.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.window.subtitleDataChanged.connect(self.on_subtitle_data_changed)
-        self.window.search_text.returnPressed.connect(lambda: self.window.filter_tree(self.window.search_text.text()))
-        self.window.track_combo.currentIndexChanged.connect(self.on_track_changed)
-        self.window.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
-        self.window.replace_button.clicked.connect(
+        self.window.inspector.search_text.returnPressed.connect(self.window.filter_tree)
+        self.window.inspector.track_combo.currentIndexChanged.connect(self.on_track_changed)
+        self.window.inspector.export_reimport_button.clicked.connect(self.on_export_reimport_clicked)
+        self.window.inspector.find_next_button.clicked.connect(self.on_find_next_clicked)
+        self.window.inspector.replace_button.clicked.connect(
             lambda: self.handle_replace_current()
         )
-        self.window.replace_all_button.clicked.connect(
+        self.window.inspector.replace_all_button.clicked.connect(
             lambda: self.handle_replace_all()
         )
  
@@ -53,22 +56,15 @@ class ApplicationController:
        msg_box.exec()
 
     def on_export_reimport_clicked(self):
-        if self.window.track_combo.currentIndex() < 0:
-           self.show_error_message("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。", "未选择轨道")
-           return
+        if self.window.inspector.track_combo.currentIndex() < 0:
+            self.show_error_message("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。", "未选择轨道")
+            return
 
-        if self.subtitle_manager.current_json_path is None:
-           print("LOG: ERROR: No JSON file path is set, please select a track first.")
-           self.show_error_message("无法获取字幕文件。请重新获取。")
-           return
-
-        print("LOG: INFO: Starting export and re-import process.")
-        success, error = self.resolve_integration.reimport_from_json_file(self.subtitle_manager.current_json_path)
-        if error:
-           self.show_error_message(f"导入/导出失败: {error}")
+        success, message = self.app_service.export_and_reimport_subtitles()
+        if success:
+            QMessageBox.information(self.window, "成功", message)
         else:
-           self.subtitle_manager.is_dirty = False
-           QMessageBox.information(self.window, "成功", "字幕已成功导入到新的轨道。")
+            self.show_error_message(message)
 
 
     def on_track_changed(self, index):
@@ -76,14 +72,13 @@ class ApplicationController:
             return
 
         track_index = index + 1
-        success, error = self.resolve_integration.set_active_subtitle_track(track_index)
+        subtitles, error = self.app_service.change_active_track(track_index)
         if error:
-           self.show_error_message(f"切换轨道失败: {error}")
-           return
+            self.show_error_message(error)
+            return
 
-        subtitles = self.subtitle_manager.load_subtitles(track_index)
         self.window.populate_table(subs_data=subtitles)
-        self.window.filter_tree(self.window.search_text.text())
+        self.window.filter_tree()
 
     def on_refresh_button_clicked(self):
         if self.subtitle_manager.is_dirty:
@@ -93,22 +88,17 @@ class ApplicationController:
             if reply == QMessageBox.No:
                 return
 
-        self.resolve_integration.cache_all_subtitle_tracks()
-        timeline_info, error = self.resolve_integration.get_current_timeline_info()
+        timeline_info, error = self.app_service.refresh_timeline_info()
         if error:
-           self.show_error_message(f"刷新失败: {error}")
-           return
-        if not timeline_info:
-            self.show_error_message("未能获取时间线信息，请确保DaVinci Resolve中已打开项目和时间线。")
+            self.show_error_message(error)
             return
 
-        self.window.track_combo.clear()
+        self.window.inspector.track_combo.clear()
         for i in range(1, timeline_info['track_count'] + 1):
-            self.window.track_combo.addItem(f"ST {i}")
+            self.window.inspector.track_combo.addItem(f"ST {i}")
 
-        # Manually trigger the on_track_changed for the initial load
-        if self.window.track_combo.count() > 0:
-            self.on_track_changed(self.window.track_combo.currentIndex())
+        if self.window.inspector.track_combo.count() > 0:
+            self.on_track_changed(self.window.inspector.track_combo.currentIndex())
 
 
     def on_item_clicked(self, item, column):
@@ -135,11 +125,17 @@ class ApplicationController:
             frame_rate = timeline_info['frame_rate']
             start_timecode_str = sub_obj['start']
 
+            # Get timecode utils on demand
+            tc_utils = self.resolve_integration.get_timecode_utils()
+            if not tc_utils:
+                self.show_error_message("Timecode utility is not available.")
+                return
+
             # Convert HH:MM:SS,ms to total frames
-            total_frames = self.timecode_utils.timecode_to_frames(start_timecode_str, frame_rate)
+            total_frames = tc_utils.timecode_to_frames(start_timecode_str, frame_rate)
             
             # Convert total frames to HH:MM:SS:FF for Resolve
-            resolve_timecode = self.timecode_utils.timecode_from_frame(total_frames, frame_rate)
+            resolve_timecode = tc_utils.timecode_from_frame(total_frames, frame_rate)
             
             self.resolve_integration.timeline.SetCurrentTimecode(resolve_timecode)
             print(f"LOG: INFO: Navigated to timecode: {resolve_timecode} (Frame: {total_frames})")
@@ -167,38 +163,37 @@ class ApplicationController:
         except Exception as e:
             print(f"LOG: ERROR: An unexpected error occurred while updating subtitle: {e}")
  
+    def on_find_next_clicked(self):
+        """Handles the 'Find Next' button click."""
+        self.window.find_next()
+
     def handle_replace_current(self):
         """Handles replacing the text of a single subtitle item."""
         current_item = self.window.tree.currentItem()
         if not current_item:
             return
-            
-        item_index = int(current_item.text(0))
-        find_text = self.window.find_text.text()
-        replace_text = self.window.replace_text.text()
 
-        change = self.subtitle_manager.handle_replace_current(item_index, find_text, replace_text)
-        
+        item_index = int(current_item.text(0))
+        find_text = self.window.inspector.find_text.text()
+        replace_text = self.window.inspector.replace_text.text()
+
+        change = self.app_service.replace_current_subtitle(item_index, find_text, replace_text)
+
         if change:
             self.window.update_item_for_replace(change['index'], change['old'], change['new'])
-            # Directly update the single subtitle in the data model,
-            # which is more efficient than a full refresh.
-            self.subtitle_manager.update_subtitle_text(change['index'], change['new'])
             self.window.find_next()
  
     def handle_replace_all(self):
         """Handles replacing text across all subtitle items."""
-        find_text = self.window.find_text.text()
-        replace_text = self.window.replace_text.text()
-        
-        changes = self.subtitle_manager.handle_replace_all(find_text, replace_text)
-        
+        find_text = self.window.inspector.find_text.text()
+        replace_text = self.window.inspector.replace_text.text()
+
+        changes = self.app_service.replace_all_subtitles(find_text, replace_text)
+
         if changes:
             self.window.update_all_items_for_replace(changes)
-            # After updating the UI, directly save the changes in the manager
-            self.subtitle_manager._save_changes_to_json()
-            self.window.find_text.clear()
-            self.window.replace_text.clear()
+            self.window.inspector.find_text.clear()
+            self.window.inspector.replace_text.clear()
 
     def run(self):
         self.connect_signals()
@@ -210,11 +205,9 @@ def main():
     try:
         resolve_integration = ResolveIntegration()
         subtitle_manager = SubtitleManager(resolve_integration)
-        timecode_utils = TimecodeUtils(resolve_integration.resolve)
         controller = ApplicationController(
             resolve_integration=resolve_integration,
-            subtitle_manager=subtitle_manager,
-            timecode_utils=timecode_utils
+            subtitle_manager=subtitle_manager
         )
         controller.run()
     except ImportError as e:

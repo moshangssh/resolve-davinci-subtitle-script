@@ -2,6 +2,42 @@
 记录项目中的重要决策、权衡和变更。
 
 ---
+**决策日期:** 2025-07-15
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 项目解耦 - 创建UI模型
+
+**决策:**
+创建UI模型 (`UIModel`) 以分离UI视图的状态和逻辑。
+
+**理由:**
+在第一阶段解耦后，`ui.py` 和 `ui_logic.py` 之间仍然存在耦合。`ui.py` 直接处理UI控件的状态，而 `ui_logic.py` 中的函数则直接从这些控件读取状态。这使得UI逻辑难以独立测试，并且UI状态的管理分散。引入 `UIModel` 作为UI状态的唯一真实来源，可以：
+1.  **集中状态管理:** 所有UI相关的状态（如搜索文本、筛选器选项）都由 `UIModel` 管理。
+2.  **简化UI视图:** `SubvigatorWindow` (`ui.py`) 的职责简化为响应用户输入、更新 `UIModel`，并请求UI逻辑层进行刷新。
+3.  **使UI逻辑更通用:** `ui_logic.py` 中的函数现在操作的是 `UIModel`，而不是具体的UI控件，使其更加独立和可测试。
+
+**行动:**
+1.  **创建 `src/ui_model.py`**: 定义 `UIModel` 数据类。
+2.  **重构 `ui.py`**: `SubvigatorWindow` 实例化 `UIModel`，并在事件处理中更新它。
+3.  **重构 `ui_logic.py`**: 更新函数以接收 `UIModel` 实例作为参数，并从中读取状态。
+
+---
+**决策日期:** 2025-07-15
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 项目解耦 - 创建应用服务层
+
+**决策:**
+创建应用服务层 (`AppService`) 以分离UI与业务逻辑。
+
+**理由:**
+`ApplicationController` 承担了过多的职责，混合了UI事件处理和核心业务逻辑（如与Resolve API的交互、字幕数据的处理等）。这种耦合使得代码难以理解、测试和维护。通过创建一个专门的服务层，我们可以将业务逻辑封装起来，使控制器更轻量，只负责响应用户输入和更新UI。
+
+**行动:**
+1.  **创建 `src/services.py`**: 创建一个新文件来容纳服务层逻辑。
+2.  **定义 `AppService` 类**: 在新文件中定义 `AppService`，并注入 `resolve_integration` 和 `subtitle_manager` 依赖。
+3.  **迁移逻辑**: 将 `ApplicationController` 中的业务逻辑方法（如 `on_export_reimport_clicked`, `on_track_changed` 等）的核心实现迁移到 `AppService` 中。
+4.  **重构控制器**: `ApplicationController` 的事件处理器现在调用 `AppService` 的方法，并根据返回结果更新UI。
+
+---
 ### 数值排序的QTreeWidgetItem [2025-07-06 00:02:00]
 **决策：**
 为了解决 `QTreeWidget` 按字母顺序对字幕编号进行排序的问题（例如，"10" 出现在 "2" 之前），创建了一个名为 `NumericTreeWidgetItem` 的新类，该类继承自 `QTreeWidgetItem`。通过重写 `__lt__` (`<`) 操作符，可以确保在排序时，第一列（字幕编号）的内容被当作整数进行比较。如果转换失败，则回退到标准的字符串比较。
@@ -559,3 +595,25 @@ Pytest with PySide6
 **影响:**
 *   `src/ui.py` 已修改，为 `find_text` 和 `replace_text` 控件添加了 `returnPressed` 信号连接。
 *   用户现在可以更高效地进行批量替换操作。
+
+---
+**决策日期:** 2025-07-15
+**决策者:** `NexusCore` / `code-developer`
+**相关任务:** 解耦 `src/ui.py` 的UI和逻辑
+
+**决策:**
+决定将 `src/ui.py` 中的UI更新和事件处理逻辑分离到 `src/ui_logic.py` 中，以实现UI和业务逻辑的解耦。
+
+**理由:**
+`src/ui.py` 文件最初混合了UI定义和大量的业务逻辑（如表格填充、过滤、查找、编辑处理等），这导致了以下问题：
+1.  **可维护性差:** UI布局的更改可能会无意中影响业务逻辑，反之亦然。
+2.  **可读性差:** 单个文件过于庞大和复杂，难以理解。
+3.  **可测试性差:** 业务逻辑与UI组件紧密耦合，难以进行独立的单元测试。
+
+通过将业务逻辑提取到独立的 `ui_logic.py` 模块中，`ui.py` 可以专注于其核心职责——UI的定义和布局，而 `ui_logic.py` 则负责处理数据操作和复杂的UI状态更新。这遵循了关注点分离 (Separation of Concerns) 的设计原则，使得代码库更加清晰、模块化，并为未来的功能扩展和维护奠定了坚实的基础。
+
+**行动:**
+1.  **创建 `src/ui_logic.py`**: 创建一个新文件来容纳被分离出来的逻辑。
+2.  **迁移逻辑**: 将 `populate_table`, `filter_tree`, `find_next`, `on_subtitle_edited`, `update_item_for_replace`, `update_all_items_for_replace` 等方法的核心逻辑重构为 `ui_logic.py` 中的独立函数。
+3.  **重构 `src/ui.py`**: `SubvigatorWindow` 类中的旧方法被清空，并转而调用 `ui_logic.py` 中的新函数。
+4.  **更新 `src/main.py`**: `ApplicationController` 被更新，以正确地连接信号并协调UI和新逻辑模块之间的交互。
