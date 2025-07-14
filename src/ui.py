@@ -272,6 +272,11 @@ class HtmlDelegate(QStyledItemDelegate):
         self.initStyleOption(options, index)
 
         # Force a uniform selection color, overriding any alternate row color
+        # 强制设置非选中项的文本颜色为黑色
+        if not (options.state & QStyle.State_Selected):
+            options.palette.setColor(QPalette.Text, QColor("#000000"))
+
+        # Force a uniform selection color, overriding any alternate row color
         if options.state & QStyle.State_Selected:
             options.palette.setColor(QPalette.Highlight, QColor("#3266d0"))
             options.palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
