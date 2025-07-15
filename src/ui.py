@@ -120,24 +120,62 @@ class SubvigatorWindow(QMainWindow):
         # The OriginalTextRole is a UI-specific concept for tracking edits.
         # We need to handle it here before passing data to the logic function.
         self.tree.blockSignals(True)
-        # Clear previous data and reset OriginalTextRole
+        
+        # --- Performance Optimization: Intelligent Tree Update ---
+        # Instead of clearing, we'll update, add, or remove items as needed.
+        
+        # Create a map of existing items by their ID for quick lookup
+        existing_items = {}
         root = self.tree.invisibleRootItem()
         for i in range(root.childCount()):
             item = root.child(i)
             if item:
-                item.setData(2, self.OriginalTextRole, None)
-        self.tree.clear()
+                existing_items[item.text(0)] = item
 
-        ui_logic.populate_table(self.tree, self.ui_model, subs_data, hide)
+        new_data_map = {str(sub.get('index', sub.get('id', ''))): sub for sub in subs_data}
+        
+        # Update existing items and remove old ones
+        items_to_remove = []
+        for item_id_str, item in existing_items.items():
+            if item_id_str not in new_data_map:
+                items_to_remove.append(item)
+            else:
+                # Update existing item
+                sub = new_data_map[item_id_str]
+                text = sub.get('text', '')
+                item.setText(1, str(len(text)))
+                item.setText(2, text)
+                item.setData(2, self.OriginalTextRole, text) # Reset original text
+                item.setData(2, Qt.UserRole, text)
+                item.setText(3, sub.get('start', sub.get('in_timecode', '')))
+                item.setText(4, sub.get('end', sub.get('out_timecode', '')))
+                item.setText(5, str(sub.get('in_frame', '')))
+                item.setHidden(hide)
 
-        # After populating, we set the initial OriginalTextRole for all items.
-        # This is crucial for the diff logic to work correctly later.
-        root = self.tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            item = root.child(i)
-            if item:
-                original_text = item.text(2)
-                item.setData(2, self.OriginalTextRole, original_text)
+        for item in items_to_remove:
+            root.removeChild(item)
+            
+        # Add new items
+        for sub in subs_data:
+            item_id_str = str(sub.get('index', sub.get('id', '')))
+            if item_id_str not in existing_items:
+                item = NumericTreeWidgetItem(self.tree)
+                item.setText(0, item_id_str)
+                text = sub.get('text', '')
+                item.setText(1, str(len(text)))
+                item.setText(2, text)
+                item.setData(2, self.OriginalTextRole, text) # Set original text
+                item.setData(2, Qt.UserRole, text)
+                item.setFlags(item.flags() | Qt.ItemIsEditable)
+                item.setText(3, sub.get('start', sub.get('in_timecode', '')))
+                item.setText(4, sub.get('end', sub.get('out_timecode', '')))
+                item.setText(5, str(sub.get('in_frame', '')))
+                if hide:
+                    item.setHidden(True)
+        
+        # ui_logic.populate_table(self.tree, self.ui_model, subs_data, hide)
+        self.ui_model.displayed_subtitles = subs_data
+        self.tree.sortItems(0, Qt.AscendingOrder)
         self.tree.blockSignals(False)
 
     def filter_tree(self):

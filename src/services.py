@@ -16,6 +16,11 @@ class AppService:
         if self.subtitle_manager.current_json_path is None:
             return False, "无法获取字幕文件路径，请先选择一个轨道或导入文件。"
 
+        # Performance: Save any pending changes before re-importing
+        if self.subtitle_manager.is_dirty:
+            print("LOG: INFO: Saving dirty changes before export...")
+            self.subtitle_manager._save_changes_to_json()
+
         print(f"LOG: INFO: Starting export and re-import process from service for {self.subtitle_manager.current_json_path}")
         success, error = self.resolve_integration.reimport_from_json_file(
             self.subtitle_manager.current_json_path
@@ -31,6 +36,12 @@ class AppService:
         Handles the logic for changing the active subtitle track.
         Returns a tuple (subtitles, error_message).
         """
+        # Performance: Save changes on the current track before switching
+        if self.subtitle_manager.is_dirty:
+            print(f"LOG: INFO: Saving dirty changes for track {self.subtitle_manager.current_track_index} before switching.")
+            self.subtitle_manager._save_changes_to_json()
+            self.subtitle_manager.is_dirty = False # Reset dirty flag after saving
+
         success, error = self.resolve_integration.set_active_subtitle_track(track_index)
         if error:
             return None, f"切换轨道失败: {error}"
