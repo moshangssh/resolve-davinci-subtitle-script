@@ -187,31 +187,6 @@ class ResolveIntegration:
             })
         return output_data
 
-    def cache_all_subtitle_tracks(self):
-        cache_dir = os.path.join(tempfile.gettempdir(), 'subvigator_cache')
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-
-        timeline_info, error = self.get_current_timeline_info()
-        if error:
-            print(f"LOG: ERROR: Could not cache tracks, failed to get timeline info: {error}")
-            return
-        if not timeline_info:
-            return
-
-        track_count = timeline_info['track_count']
-        for i in range(1, track_count + 1):
-            json_data = self.export_subtitles_to_json(track_number=i)
-            if json_data:
-                file_path = os.path.join(cache_dir, f"track_{i}.json")
-                try:
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        json.dump(json_data, f, ensure_ascii=False, indent=2)
-                except (IOError, json.JSONDecodeError) as e:
-                    print(f"LOG: ERROR: Error writing or encoding JSON file for track {i}: {e}")
-                except Exception as e:
-                    print(f"LOG: CRITICAL: An unexpected error occurred during JSON export for track {i}: {e}")
-            
     def export_subtitles_to_srt(self, track_number=1, zero_based=False):
         if not self.timeline:
             return None

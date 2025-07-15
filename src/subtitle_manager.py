@@ -20,17 +20,37 @@ class SubtitleManager:
 
     def load_subtitles(self, track_index):
         """
-        Loads subtitles from the cache.
+        Loads subtitles from the cache, fetching from Resolve if not present (lazy loading).
         """
         self.current_track_index = track_index
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+
         file_path = os.path.join(self.cache_dir, f"track_{track_index}.json")
         self.current_json_path = file_path
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                self.subtitles_data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.subtitles_data = []
-            self.current_json_path = None # If file doesn't exist, path is invalid
+
+        if not os.path.exists(file_path):
+            print(f"LOG: INFO: Cache miss for track {track_index}. Fetching from Resolve.")
+            # Fetch from Resolve and cache it
+            json_data = self.resolve_integration.export_subtitles_to_json(track_number=track_index)
+            if json_data is not None:
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(json_data, f, ensure_ascii=False, indent=2)
+                    self.subtitles_data = json_data
+                except (IOError, json.JSONDecodeError) as e:
+                    print(f"LOG: ERROR: Error writing or encoding JSON file for track {track_index}: {e}")
+                    self.subtitles_data = []
+            else:
+                # Handle case where fetching from Resolve fails or returns no data
+                self.subtitles_data = []
+        else:
+            # Load from existing cache file
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    self.subtitles_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                self.subtitles_data = []
         
         return self.subtitles_data
 

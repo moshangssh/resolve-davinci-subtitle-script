@@ -116,8 +116,8 @@ class ApplicationController:
 
             timeline_info, error = self.resolve_integration.get_current_timeline_info()
             if error:
-               self.show_error_message(f"无法导航到时间码: {error}")
-               return
+                self.show_error_message(f"无法导航到时间码: {error}")
+                return
             if not timeline_info:
                 print("LOG: WARNING: Could not get timeline info.")
                 return

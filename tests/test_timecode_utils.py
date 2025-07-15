@@ -103,3 +103,58 @@ def test_timecode_from_frame_negative_input(mock_resolve, mock_cffi):
     args, _ = mock_cffi["libavutil"].av_timecode_make_string.call_args
     # The frame number is the 3rd argument (index 2)
     assert args[2] == 0
+
+@patch('src.timecode_utils.glob.glob')
+@patch('src.timecode_utils.logging')
+def test_load_library_selects_highest_version(mock_logging, mock_glob, mock_resolve, mock_cffi):
+    """Test that _load_library selects the library with the highest version."""
+    mock_glob.return_value = ["/fake/path/avutil-57.dll", "/fake/path/avutil-58.dll"]
+    mock_lib_58 = MagicMock()
+    mock_lib_58.name = "avutil-58.dll"
+    mock_cffi["ffi"].dlopen.return_value = mock_lib_58
+    
+    utils = TimecodeUtils(mock_resolve)
+
+    mock_cffi["ffi"].dlopen.assert_called_with("/fake/path/avutil-58.dll")
+    assert utils.libavutil.name == "avutil-58.dll"
+    mock_logging.info.assert_any_call("Selected library with highest version: /fake/path/avutil-58.dll")
+
+@patch('src.timecode_utils.glob.glob')
+@patch('src.timecode_utils.logging')
+def test_load_library_version_parse_warning(mock_logging, mock_glob, mock_resolve, mock_cffi):
+    """Test that a warning is logged for unparsable library versions."""
+    mock_glob.return_value = ["/fake/path/avutil-58.dll", "/fake/path/avutil-bad.dll"]
+    mock_lib_58 = MagicMock()
+    mock_lib_58.name = "avutil-58.dll"
+    mock_cffi["ffi"].dlopen.return_value = mock_lib_58
+
+    utils = TimecodeUtils(mock_resolve)
+
+    mock_cffi["ffi"].dlopen.assert_called_with("/fake/path/avutil-58.dll")
+    assert utils.libavutil.name == "avutil-58.dll"
+    mock_logging.warning.assert_any_call("Could not parse version from '/fake/path/avutil-bad.dll'.")
+
+@patch('src.timecode_utils.glob.glob')
+@patch('src.timecode_utils.logging')
+def test_load_library_fallback_on_no_version(mock_logging, mock_glob, mock_resolve, mock_cffi):
+    """Test that _load_library falls back to the first lib if no versions can be parsed."""
+    mock_glob.return_value = ["/fake/path/avutil-foo.dll", "/fake/path/avutil-bar.dll"]
+    mock_lib_foo = MagicMock()
+    mock_lib_foo.name = "avutil-foo.dll"
+    mock_cffi["ffi"].dlopen.return_value = mock_lib_foo
+    
+    utils = TimecodeUtils(mock_resolve)
+
+    mock_cffi["ffi"].dlopen.assert_called_with("/fake/path/avutil-foo.dll")
+    assert utils.libavutil.name == "avutil-foo.dll"
+    mock_logging.warning.assert_any_call("Could not determine the best library version. Falling back to the first one found.")
+
+@patch('src.timecode_utils.glob.glob')
+@patch('src.timecode_utils.logging')
+def test_load_library_logs_loading_path(mock_logging, mock_glob, mock_resolve, mock_cffi):
+    """Test that _load_library logs the path of the library it's attempting to load."""
+    mock_glob.return_value = ["/fake/path/avutil-58.dll"]
+    
+    utils = TimecodeUtils(mock_resolve)
+    
+    mock_logging.info.assert_any_call("Attempting to load library from DaVinci Resolve's path: /fake/path/avutil-58.dll")

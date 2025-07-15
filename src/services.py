@@ -42,7 +42,6 @@ class AppService:
         Refreshes timeline information from Resolve.
         Returns a tuple (timeline_info, error_message).
         """
-        self.resolve_integration.cache_all_subtitle_tracks()
         timeline_info, error = self.resolve_integration.get_current_timeline_info()
         if error:
             return None, f"刷新失败: {error}"

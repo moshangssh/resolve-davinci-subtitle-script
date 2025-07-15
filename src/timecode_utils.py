@@ -4,6 +4,11 @@ import math
 import cffi
 import os
 import glob
+import re
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class TimecodeUtils:
     def __init__(self, resolve=None):
@@ -48,29 +53,53 @@ class TimecodeUtils:
         lib_name_pattern = ""
         if platform.system() == "Windows":
             lib_name_pattern = "avutil*.dll"
-        elif platform.system() == "Darwin": # OSX
+        elif platform.system() == "Darwin":
             lib_name_pattern = "libavutil*.dylib"
-        else: # Linux
+        else:
             lib_name_pattern = "libavutil.so"
-            
-        fusion_libs_path = fu.MapPath("FusionLibs:")
-        
-        # On non-Windows, the path might be one level up
-        if platform.system() != "Windows":
-             fusion_libs_path = os.path.abspath(os.path.join(fusion_libs_path, '..'))
 
-        # Search for the library in the FusionLibs directory
+        fusion_libs_path = fu.MapPath("FusionLibs:")
+
+        if platform.system() != "Windows":
+            fusion_libs_path = os.path.abspath(os.path.join(fusion_libs_path, '..'))
+
         lib_path_search = os.path.join(fusion_libs_path, lib_name_pattern)
         found_libs = glob.glob(lib_path_search)
 
         if not found_libs:
             raise ImportError(f"Could not find library matching '{lib_name_pattern}' in '{fusion_libs_path}'")
-        
-        # Take the first match
-        lib_path = found_libs[0]
+
+        lib_path = None
+        if len(found_libs) > 1:
+            logging.info(f"Found multiple libraries: {found_libs}. Attempting to select the latest version.")
+            best_version = -1
+            selected_lib = None
+            
+            for lib in found_libs:
+                # Extract version number from filename, e.g., avutil-58.dll or libavutil.58.dylib
+                match = re.search(r'(\d+)\.(dll|dylib|so)', os.path.basename(lib))
+                if not match:
+                    match = re.search(r'-(\d+)\.dll', os.path.basename(lib))
+
+                if match:
+                    version = int(match.group(1))
+                    if version > best_version:
+                        best_version = version
+                        selected_lib = lib
+                else:
+                    logging.warning(f"Could not parse version from '{lib}'.")
+
+            if selected_lib:
+                lib_path = selected_lib
+                logging.info(f"Selected library with highest version: {lib_path}")
+            else:
+                logging.warning("Could not determine the best library version. Falling back to the first one found.")
+                lib_path = found_libs[0]
+        else:
+            lib_path = found_libs[0]
 
         try:
-            print(f"Attempting to load library from DaVinci Resolve's path: {lib_path}")
+            logging.info(f"Attempting to load library from DaVinci Resolve's path: {lib_path}")
             return self.ffi.dlopen(lib_path)
         except OSError as e:
             error_message = (
@@ -100,53 +129,105 @@ class TimecodeUtils:
         fraction = self.get_fraction(frame_rate_string_or_number)
         return float(f"{fraction['num'] / fraction['den']:.3f}")
 
-    def frame_from_timecode(self, timecode, frame_rate):
-        try:
-            rate_frac = self.get_fraction(frame_rate)
-            tc = self.ffi.new("struct AVTimecode *")
-            rate = self.ffi.new("struct AVRational", rate_frac)
-            timecode_bytes = timecode.encode('utf-8')
-            
-            result = self.libavutil.av_timecode_init_from_string(tc, rate, timecode_bytes, self.ffi.NULL)
-            if result != 0:
-                raise RuntimeError(f"avutil error code: {result}")
-            return tc.start
-        except (RuntimeError, ValueError) as e:
-            raise ValueError(f'Invalid timecode format: {timecode} - {e}')
+    def frame_from_timecode(self, timecode, frame_rate, drop_frame=False):
+        if self.libavutil:
+            try:
+                rate_frac = self.get_fraction(frame_rate)
+                tc = self.ffi.new("struct AVTimecode *")
+                rate = self.ffi.new("struct AVRational", rate_frac)
+                timecode_bytes = timecode.encode('utf-8')
+                
+                result = self.libavutil.av_timecode_init_from_string(tc, rate, timecode_bytes, self.ffi.NULL)
+                if result != 0:
+                    raise RuntimeError(f"avutil error code: {result}")
+                return tc.start
+            except (RuntimeError, ValueError) as e:
+                raise ValueError(f'Invalid timecode format: {timecode} - {e}')
+        else:
+            return self._python_timecode_to_frame(timecode, frame_rate, drop_frame)
 
     def timecode_from_frame(self, frame, frame_rate, drop_frame=False):
-        frame = max(0, frame)
-        # 1. 获取帧率的十进制表示
-        decimal_fps = self.get_decimal(frame_rate)
+        if self.libavutil:
+            frame = max(0, frame)
+            decimal_fps = self.get_decimal(frame_rate)
+            flags_value = 0
+            if drop_frame:
+                flags_value |= 1
+            flags_value |= 2
 
-        # 2. 构造 AVTimecode 结构体所需的 flags
-        flags_value = 0
+            tc = self.ffi.new("struct AVTimecode *", {
+                'start': 0,
+                'flags': flags_value,
+                'rate': {'num': 0, 'den': 0},
+                'fps': math.ceil(decimal_fps)
+            })
+
+            buf = self.ffi.new("char[30]")
+            result_ptr = self.libavutil.av_timecode_make_string(tc, buf, frame)
+
+            if result_ptr == self.ffi.NULL:
+                return "00:00:00:00"
+
+            return self.ffi.string(result_ptr).decode('utf-8')
+        else:
+            return self._python_frame_to_timecode(frame, frame_rate, drop_frame)
+
+    def _python_timecode_to_frame(self, timecode: str, frame_rate: float, drop_frame: bool) -> int:
+        parts = timecode.replace(';', ':').split(':')
+        if len(parts) != 4:
+            raise ValueError("Timecode must be in HH:MM:SS:FF format.")
+
+        try:
+            h, m, s, f = [int(p) for p in parts]
+        except ValueError:
+            raise ValueError("Timecode components must be integers.")
+
+        fps_int = int(round(frame_rate))
+        total_frames = (h * 3600 + m * 60 + s) * fps_int + f
+
         if drop_frame:
-            flags_value |= 1  # AV_TIMECODE_FLAG_DROPFRAME
-        flags_value |= 2      # AV_TIMECODE_FLAG_24HOURSMAX
+            # Drop-frame calculation is complex. This is a simplified placeholder.
+            # A full implementation would be needed for perfect accuracy.
+            # For 29.97/59.94, 2 frames are dropped each minute, except every 10th minute.
+            if fps_int in (30, 60): # Approximation for 29.97/59.94
+                total_minutes = h * 60 + m
+                num_drops = 2 * (total_minutes - total_minutes // 10)
+                if fps_int == 60:
+                    num_drops *= 2
+                total_frames -= num_drops
+                
+        return total_frames
 
-        # 3. 使用 cffi 创建 AVTimecode 结构体实例
-        tc = self.ffi.new("struct AVTimecode *", {
-            'start': 0,
-            'flags': flags_value,
-            'rate': {'num': 0, 'den': 0}, # 显式初始化
-            'fps': math.ceil(decimal_fps)
-        })
+    def _python_frame_to_timecode(self, frame: int, frame_rate: float, drop_frame: bool) -> str:
+        frame = max(0, int(frame))
+        fps_decimal = self.get_decimal(frame_rate)
+        fps_int = int(round(fps_decimal))
 
-        # 4. 准备调用 av_timecode_make_string 所需的缓冲区
-        buf = self.ffi.new("char[30]")
+        if drop_frame and fps_int in (30, 60):
+            # Simplified drop-frame logic
+            frames_per_minute_nominal = fps_int * 60
+            
+            # Number of frames to drop per minute (e.g., 2 for 29.97)
+            drop_frames = 2 if fps_int == 30 else 4
 
-        # 5. 调用 C 函数
-        result_ptr = self.libavutil.av_timecode_make_string(tc, buf, frame)
+            # Number of 10-minute cycles
+            d = frame // (frames_per_minute_nominal * 10 - drop_frames * 9)
+            # Remainder of frames
+            m = frame % (frames_per_minute_nominal * 10 - drop_frames * 9)
 
-        # 6. 检查返回指针是否为空
-        if result_ptr == self.ffi.NULL:
-            return "00:00:00:00" # 或抛出异常
+            if m > drop_frames:
+                frame += drop_frames * 9 * d + drop_frames * ((m - drop_frames) // (frames_per_minute_nominal - drop_frames))
+            else:
+                frame += drop_frames * 9 * d
 
-        # 7. 将返回的C字符串转换为Python字符串
-        timecode_string = self.ffi.string(result_ptr).decode('utf-8')
+        total_seconds = frame / fps_decimal
+        
+        hours = int(total_seconds / 3600)
+        minutes = int((total_seconds % 3600) / 60)
+        seconds = int(total_seconds % 60)
+        frames = frame % fps_int
 
-        return timecode_string
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
     @staticmethod
     def timecode_to_srt_format(frame, frame_rate):
