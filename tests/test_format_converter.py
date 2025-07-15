@@ -4,7 +4,7 @@ import json
 import os
 from unittest.mock import patch, mock_open
 
-from src.format_converter import format_subtitles_to_srt, convert_json_to_srt
+from src.format_converter import format_subtitles_to_srt, convert_json_to_srt, parse_srt_content
 from src.timecode_utils import TimecodeUtils
 
 # --- Mocks and Fixtures ---
@@ -12,7 +12,7 @@ from src.timecode_utils import TimecodeUtils
 @pytest.fixture
 def mock_timecode_utils():
     """Fixture to mock the TimecodeUtils methods."""
-    with patch('format_converter.TimecodeUtils', autospec=True) as mock_tc:
+    with patch('src.format_converter.TimecodeUtils', autospec=True) as mock_tc:
         # Simulate the conversion logic for testing purposes
         def mock_timecode_to_frames(timecode, frame_rate):
             parts = timecode.split(':')
@@ -107,7 +107,7 @@ def test_convert_json_to_srt_success(mocker):
     mocker.patch('builtins.open', m)
     
     # Mock the formatter function that it calls
-    mocker.patch('format_converter.format_subtitles_to_srt', return_value="EXPECTED_SRT_CONTENT")
+    mocker.patch('src.format_converter.format_subtitles_to_srt', return_value="EXPECTED_SRT_CONTENT")
     
     result = convert_json_to_srt('fake/path/to/file.json', 24.0)
     
@@ -139,6 +139,124 @@ def test_convert_json_to_srt_invalid_json(mocker, capsys):
     assert result == ""
     captured = capsys.readouterr()
     assert "Error reading or parsing JSON file" in captured.out
+
+# --- Tests for parse_srt_content ---
+
+def test_parse_srt_content_single_block():
+    """Test parsing a single, well-formed SRT block."""
+    srt_content = (
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "Hello world."
+    )
+    expected = [{
+        'index': 1,
+        'start': '00:00:01,000',
+        'end': '00:00:02,500',
+        'text': 'Hello world.'
+    }]
+    assert parse_srt_content(srt_content) == expected
+
+def test_parse_srt_content_multiple_blocks():
+    """Test parsing multiple SRT blocks."""
+    srt_content = (
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "First subtitle.\n\n"
+        "2\n"
+        "00:00:03,000 --> 00:00:05,000\n"
+        "Second subtitle."
+    )
+    expected = [
+        {
+            'index': 1,
+            'start': '00:00:01,000',
+            'end': '00:00:02,500',
+            'text': 'First subtitle.'
+        },
+        {
+            'index': 2,
+            'start': '00:00:03,000',
+            'end': '00:00:05,000',
+            'text': 'Second subtitle.'
+        }
+    ]
+    assert parse_srt_content(srt_content) == expected
+
+def test_parse_srt_content_multiline_text():
+    """Test parsing an SRT block with multi-line text."""
+    srt_content = (
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "This is line one.\n"
+        "This is line two."
+    )
+    expected = [{
+        'index': 1,
+        'start': '00:00:01,000',
+        'end': '00:00:02,500',
+        'text': 'This is line one.\nThis is line two.'
+    }]
+    assert parse_srt_content(srt_content) == expected
+
+def test_parse_srt_content_extra_newlines():
+    """Test that extra newlines between blocks are handled correctly."""
+    srt_content = (
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "First.\n\n\n"
+        "2\n"
+        "00:00:03,000 --> 00:00:05,000\n"
+        "Second."
+    )
+    expected = [
+        {
+            'index': 1,
+            'start': '00:00:01,000',
+            'end': '00:00:02,500',
+            'text': 'First.'
+        },
+        {
+            'index': 2,
+            'start': '00:00:03,000',
+            'end': '00:00:05,000',
+            'text': 'Second.'
+        }
+    ]
+    assert parse_srt_content(srt_content) == expected
+
+def test_parse_srt_content_invalid_block_missing_parts(capsys):
+    """Test that blocks with missing parts are skipped."""
+    srt_content = (
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500"
+    )
+    assert parse_srt_content(srt_content) == []
+    # This case does not print an error because it's filtered out by `if len(lines) >= 3`
+    # so we just check for an empty list.
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+def test_parse_srt_content_invalid_block_bad_index(capsys):
+    """Test that blocks with a non-integer index are skipped."""
+    srt_content = (
+        "A\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "Some text."
+    )
+    assert parse_srt_content(srt_content) == []
+    captured = capsys.readouterr()
+    assert "Skipping invalid SRT block" in captured.out
+
+def test_parse_srt_content_empty_input():
+    """Test parsing an empty string."""
+    assert parse_srt_content("") == []
+
+def test_parse_srt_content_no_subtitles():
+    """Test parsing a string with no valid subtitle blocks."""
+    srt_content = "Just some random text without any valid format."
+    assert parse_srt_content(srt_content) == []
+
 
 if __name__ == "__main__":
     pytest.main()

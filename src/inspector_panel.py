@@ -41,6 +41,7 @@ class InspectorPanel(QWidget):
         self.track_combo = QComboBox()
         self.refresh_button = QPushButton("获取字幕")
         self.export_reimport_button = QPushButton("导出到DaVinci Resolve中")
+        self.import_srt_button = QPushButton("导入SRT文件")
 
     def _setup_layouts(self):
         inspector_layout = QVBoxLayout(self)
@@ -80,5 +81,6 @@ class InspectorPanel(QWidget):
         bottom_layout = QHBoxLayout()
         bottom_layout.addWidget(self.track_combo)
         bottom_layout.addWidget(self.refresh_button)
+        bottom_layout.addWidget(self.import_srt_button)
         inspector_layout.addLayout(bottom_layout)
         inspector_layout.addWidget(self.export_reimport_button)

@@ -1,5 +1,6 @@
 from .resolve_integration import ResolveIntegration
 from .subtitle_manager import SubtitleManager
+from PySide6.QtWidgets import QFileDialog
 
 
 class AppService:
@@ -10,12 +11,12 @@ class AppService:
     def export_and_reimport_subtitles(self):
         """
         Handles the core logic for exporting and re-importing subtitles.
-        Returns a tuple (success, message).
+        This now serves as a unified export function.
         """
         if self.subtitle_manager.current_json_path is None:
-            return False, "无法获取字幕文件路径，请先选择一个轨道。"
+            return False, "无法获取字幕文件路径，请先选择一个轨道或导入文件。"
 
-        print("LOG: INFO: Starting export and re-import process from service.")
+        print(f"LOG: INFO: Starting export and re-import process from service for {self.subtitle_manager.current_json_path}")
         success, error = self.resolve_integration.reimport_from_json_file(
             self.subtitle_manager.current_json_path
         )
@@ -68,3 +69,22 @@ class AppService:
         if changes:
             self.subtitle_manager._save_changes_to_json()
         return changes
+
+    def import_srt_file(self, parent_widget):
+        """Opens a file dialog to import an SRT file."""
+        file_path, _ = QFileDialog.getOpenFileName(parent_widget, "选择SRT文件", "", "SRT Files (*.srt)")
+        if not file_path:
+            return None, "No file selected."
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 调用我们之前在 subtitle_manager 中创建的方法
+            subtitles = self.subtitle_manager.load_subtitles_from_srt_content(content)
+            if subtitles:
+                return subtitles, None
+            else:
+                return None, "无法从文件中解析字幕。"
+        except Exception as e:
+            return None, f"读取或解析文件时出错: {e}"

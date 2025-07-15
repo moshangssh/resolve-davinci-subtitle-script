@@ -750,3 +750,27 @@ Pytest with PySide6
 1.  **移除完全缓存:** 从 `refresh_timeline_info` 方法中移除了 `cache_all_subtitle_tracks` 的调用，并删除了该方法。
 2.  **实现懒加载:** 修改了 `subtitle_manager.load_subtitles` 方法，使其在加载轨道前检查缓存是否存在。如果缓存不存在，则按需从 Resolve 获取并创建该轨道的缓存。
 3.  **保证数据一致性:** "刷新"按钮现在会清空缓存并重新懒加载当前轨道，以确保用户可以获取最新数据。
+
+
+---
+### 代码实现 [数据-扩展字幕管理器]
+[2025-07-15 23:44:44] - 在`SubtitleManager`中添加了`load_subtitles_from_srt_content`方法，用于从SRT内容字符串加载字幕，替换现有数据并更新缓存。
+
+**实现细节：**
+- **`load_subtitles_from_srt_content(self, srt_content: str)`**:
+  - 调用`parse_srt_content`解析SRT内容。
+  - 成功解析后，用新数据替换`self.subtitles_data`。
+  - 设置`self.is_dirty = True`。
+  - 将`self.current_track_index`设为0，表示数据来自导入的SRT。
+  - 设置`self.current_json_path`为`imported_srt.json`的路径。
+  - 调用`_save_changes_to_json()`保存到新的缓存文件。
+- **`_save_changes_to_json(self)`**:
+  - 修改了保存逻辑，优先使用`self.current_json_path`。
+  - 如果`self.current_json_path`不存在，则回退到基于`self.current_track_index`的原始逻辑。
+
+**测试框架：**
+- 使用`pytest`和`unittest.mock`进行单元测试。
+
+**测试结果：**
+- 覆盖率：100%
+- 通过率：100%

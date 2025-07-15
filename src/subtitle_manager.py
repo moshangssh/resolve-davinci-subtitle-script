@@ -2,6 +2,8 @@ import re
 from .utils import clean_html
 import json
 import os
+from .format_converter import parse_srt_content
+import os
 import tempfile
 import shutil
 
@@ -61,6 +63,19 @@ class SubtitleManager:
             sub['char_count'] = len(clean_text)
         return self.subtitles_data
 
+    def load_subtitles_from_srt_content(self, srt_content: str):
+        """Loads subtitles from SRT content, replacing current data."""
+        parsed_subs = parse_srt_content(srt_content)
+        if parsed_subs:
+            self.subtitles_data = parsed_subs
+            self.is_dirty = True
+            # 将 current_track_index 设置为 0 或其他特殊值，以表示数据源是导入的SRT文件
+            self.current_track_index = 0
+            self.current_json_path = os.path.join(self.cache_dir, 'imported_srt.json')
+            self._save_changes_to_json()
+            return self.subtitles_data
+        return []
+
     def set_subtitles(self, subtitles_data):
         """
         Sets the entire list of subtitles and saves them.
@@ -113,11 +128,13 @@ class SubtitleManager:
 
     def _save_changes_to_json(self):
         """Saves the current subtitle data to the JSON file."""
-        if self.current_track_index is None:
-            print("Error: No current track index is set. Cannot save.")
+        if self.current_json_path:
+            file_path = self.current_json_path
+        elif self.current_track_index is not None:
+            file_path = os.path.join(self.cache_dir, f"track_{self.current_track_index}.json")
+        else:
+            print("Error: No current track index or json path is set. Cannot save.")
             return
-
-        file_path = os.path.join(self.cache_dir, f"track_{self.current_track_index}.json")
         
         try:
             output_data = []

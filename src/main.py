@@ -42,6 +42,7 @@ class ApplicationController:
         self.window.inspector.replace_all_button.clicked.connect(
             lambda: self.handle_replace_all()
         )
+        self.window.inspector.import_srt_button.clicked.connect(self.on_import_srt_clicked)
  
  
     def show_error_message(self, text, title="操作失败"):
@@ -56,10 +57,15 @@ class ApplicationController:
        msg_box.exec()
 
     def on_export_reimport_clicked(self):
-        if self.window.inspector.track_combo.currentIndex() < 0:
-            self.show_error_message("请先在DaVinci Resolve的时间线上选择一个轨道，然后再执行此操作。", "未选择轨道")
+        """
+        Handles the click of the export/re-import button.
+        The logic is now simplified to call the unified service method.
+        """
+        if self.subtitle_manager.current_json_path is None:
+            self.show_error_message("没有可导出的字幕数据。请先获取轨道字幕或导入SRT文件。", "操作无法进行")
             return
 
+        # Directly call the unified service, which handles all cases.
         success, message = self.app_service.export_and_reimport_subtitles()
         if success:
             QMessageBox.information(self.window, "成功", message)
@@ -194,6 +200,23 @@ class ApplicationController:
             self.window.update_all_items_for_replace(changes)
             self.window.inspector.find_text.clear()
             self.window.inspector.replace_text.clear()
+
+    def on_import_srt_clicked(self):
+        if self.subtitle_manager.is_dirty:
+            reply = QMessageBox.question(self.window, '未同步的修改',
+                                         "您有未保存的更改，导入新文件将覆盖它们。要继续吗？",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
+        subtitles, error = self.app_service.import_srt_file(self.window)
+        if error:
+            self.show_error_message(error, "导入失败")
+            return
+        
+        self.window.populate_table(subs_data=subtitles)
+        self.window.filter_tree()
+        QMessageBox.information(self.window, "成功", "SRT文件已成功导入。")
 
     def run(self):
         self.connect_signals()

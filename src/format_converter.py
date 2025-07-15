@@ -1,4 +1,5 @@
 import json
+import re
 from src.timecode_utils import TimecodeUtils
 
 def format_subtitles_to_srt(subtitles: list, frame_rate: float, offset_frames: int = 0) -> str:
@@ -38,3 +39,28 @@ def convert_json_to_srt(json_path: str, frame_rate: float, offset_frames: int = 
         return ""
 
     return format_subtitles_to_srt(subtitles, frame_rate, offset_frames)
+
+def parse_srt_content(srt_content: str) -> list:
+    """Parses SRT content into a list of subtitle dictionaries."""
+    subtitle_blocks = srt_content.strip().split('\n\n')
+    subtitles = []
+    for block in subtitle_blocks:
+        lines = block.strip().split('\n')
+        if len(lines) >= 3:
+            try:
+                index = int(lines[0])
+                time_line = lines[1]
+                text_lines = lines[2:]
+                
+                start_str, end_str = [t.strip() for t in time_line.split('-->')]
+                
+                subtitles.append({
+                    'index': index,
+                    'start': start_str,
+                    'end': end_str,
+                    'text': '\n'.join(text_lines)
+                })
+            except (ValueError, IndexError) as e:
+                print(f"Skipping invalid SRT block: {block} - Error: {e}")
+                continue
+    return subtitles
