@@ -103,15 +103,7 @@ graph TD
 ### 3.5. 格式转换与工具
 
 *   **`format_converter.py`**: 负责在应用内部数据结构（`SubtitleItem` 列表）和标准 SRT 格式之间进行双向转换。
-*   **`timecode_utils.py`**: 项目中技术最复杂的模块，通过 `cffi` 动态调用 DaVinci Resolve 自带的 FFmpeg `avutil` 库，实现了工业级精度的时间码与帧数互转。
-    - **CFFI 交互**: 使用 `cffi.FFI()` 创建一个 Foreign Function Interface 实例。
-    - **FFmpeg `avutil` 库加载**:
-        - 首先尝试在 Resolve 的 `libs` 目录下定位 `avutil.dll` 或 `libavutil.so`。
-        - 如果失败，则在系统的 `PATH` 环境变量中搜索。
-    - **核心函数调用**:
-        - `avutil.av_get_time_base_q()`: 获取 FFmpeg 内部默认的时间基准（`{1, 1000000}`），用于高精度时间计算。
-        - `avutil.av_rescale_q(pts, tb_src, tb_dst)`: 在不同的时间基准之间重新缩放时间戳（PTS），这是时间码与帧数转换的核心。
-    - **后备方案**: 如果 `avutil` 库加载失败，模块会回退到一个纯 Python 实现的 `timecode_to_frames_fallback` 函数，该函数基于固定的帧率（24 FPS）进行估算，以保证基本功能的可用性。
+*   **`timecode_utils.py`**: 提供了一套纯静态的工具方法，用于在时间码字符串、总帧数和 SRT 时间格式之间进行精确转换。该模块通过封装强大的 `timecode` 第三方库，极大地简化了时间码处理逻辑，并确保了对各种帧率（包括 Drop-Frame）的健壮支持。
 *   **`utils.py`**: 通用工具模块，包含文件操作、日志记录等辅助函数。
 
 ## 4. 核心流程分析

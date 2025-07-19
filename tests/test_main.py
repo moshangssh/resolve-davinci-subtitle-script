@@ -25,14 +25,12 @@ def mock_subtitle_manager():
     return mock
 
 @pytest.fixture
-def mock_timecode_utils(mock_resolve_integration):
-    # This is a bit tricky because TimecodeUtils __init__ might need a real resolve object
-    # For unit testing the controller, we can mock its methods directly.
-    with patch('main.TimecodeUtils') as mock:
-        instance = mock.return_value
-        instance.timecode_to_frames.side_effect = lambda tc, fr: int(float(tc.replace(',', '.')) * fr) if ':' not in tc else int((int(tc.split(':')[0])*3600 + int(tc.split(':')[1])*60 + float(tc.split(':')[2].replace(',','.'))) * fr)
-        instance.timecode_from_frame.side_effect = lambda fr, fr_rate: f"{int(fr/fr_rate/3600):02d}:{int(fr/fr_rate%3600/60):02d}:{int(fr/fr_rate%60):02d}:{int(fr%fr_rate):02d}"
-        yield instance
+def mock_timecode_utils():
+    """Provides a mock of the TimecodeUtils class."""
+    mock = MagicMock()
+    mock.timecode_to_frames.side_effect = lambda tc, fr: int(float(tc.replace(',', '.')) * fr) if ':' not in tc else int((int(tc.split(':')[0])*3600 + int(tc.split(':')[1])*60 + float(tc.split(':')[2].replace(',','.'))) * fr)
+    mock.timecode_from_frame.side_effect = lambda fr, fr_rate: f"{int(fr/fr_rate/3600):02d}:{int(fr/fr_rate%3600/60):02d}:{int(fr/fr_rate%60):02d}:{int(fr%fr_rate):02d}"
+    return mock
 
 
 @pytest.fixture
@@ -40,12 +38,15 @@ def mock_data_model():
     return MagicMock()
 
 @pytest.fixture
-def controller(mock_resolve_integration, mock_subtitle_manager, mock_data_model, mock_timecode_utils, qtbot):
+def controller(mock_resolve_integration, mock_subtitle_manager, mock_timecode_utils, qtbot):
     # Ensure QApplication instance exists
     QApplication.instance() or QApplication(sys.argv)
     
+    # Mock the get_timecode_utils method to return our mock
+    mock_resolve_integration.get_timecode_utils.return_value = mock_timecode_utils
+
     # Mock the window and its components
-    with patch('main.SubvigatorWindow') as mock_window:
+    with patch('src.main.SubvigatorWindow') as mock_window:
         # We need a real QTreeWidget to test item interaction
         tree = QTreeWidget()
         qtbot.addWidget(tree)
@@ -53,8 +54,7 @@ def controller(mock_resolve_integration, mock_subtitle_manager, mock_data_model,
         
         controller = ApplicationController(
             resolve_integration=mock_resolve_integration,
-            subtitle_manager=mock_subtitle_manager,
-            timecode_utils=mock_timecode_utils
+            subtitle_manager=mock_subtitle_manager
         )
         # Manually populate the tree for the test
         for sub in mock_subtitle_manager.get_subtitles():
@@ -63,7 +63,7 @@ def controller(mock_resolve_integration, mock_subtitle_manager, mock_data_model,
 
         yield controller
 
-def test_on_item_clicked_jumps_to_correct_timecode(controller, mock_resolve_integration, mock_timecode_utils):
+def test_on_item_clicked_jumps_to_correct_timecode(controller, mock_resolve_integration):
     """
     Test that clicking a subtitle item in the UI triggers a timecode jump in Resolve.
     """
@@ -76,14 +76,15 @@ def test_on_item_clicked_jumps_to_correct_timecode(controller, mock_resolve_inte
 
     # THEN the timecode utilities are called with the correct parameters
     frame_rate = mock_resolve_integration.get_current_timeline_info()[0]['frame_rate']
-    mock_timecode_utils.timecode_to_frames.assert_called_once_with('00:00:10,500', frame_rate)
+    mock_tc_utils = mock_resolve_integration.get_timecode_utils()
+    mock_tc_utils.timecode_to_frames.assert_called_once_with('00:00:10,500', frame_rate)
     
     # AND the resolve integration is called to set the new timecode
     # Calculation: (10s + 500ms) * 24fps = 10.5 * 24 = 252 frames
     # Converted back to timecode: 10s and 12 frames -> 00:00:10:12
     expected_frames = 252
-    expected_resolve_tc = "00:00:10:12" 
-    mock_timecode_utils.timecode_from_frame.assert_called_once_with(expected_frames, frame_rate)
+    expected_resolve_tc = "00:00:10:12"
+    mock_tc_utils.timecode_from_frame.assert_called_once_with(expected_frames, frame_rate)
     mock_resolve_integration.timeline.SetCurrentTimecode.assert_called_once_with(expected_resolve_tc)
 
 def test_on_item_clicked_with_invalid_item_id(controller, mock_resolve_integration, capsys):
@@ -105,7 +106,7 @@ def test_on_item_clicked_with_invalid_item_id(controller, mock_resolve_integrati
     captured = capsys.readouterr()
     assert "LOG: WARNING: Failed to process item click for ID invalid_id" in captured.out
     
-def test_on_item_clicked_with_nonexistent_subtitle_object(controller, mock_resolve_integration, mock_subtitle_manager, capsys):
+def test_on_item_clicked_with_nonexistent_subtitle_object(controller, mock_resolve_integration, capsys):
     """
     Test that clicking an item whose ID does not correspond to a subtitle object is handled gracefully.
     """

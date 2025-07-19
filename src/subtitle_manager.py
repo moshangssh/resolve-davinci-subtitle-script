@@ -89,7 +89,7 @@ class SubtitleManager:
         sub_obj = next((s for s in self.subtitles_data if s['index'] == item_id), None)
         if sub_obj:
             sub_obj['text'] = new_text
-            # self._save_changes_to_json() # Performance: Avoid saving on every single change
+            self._save_changes_to_json() # Performance: Avoid saving on every single change
             self.is_dirty = True
             return True
         return False
@@ -105,7 +105,7 @@ class SubtitleManager:
             if original_text != new_text:
                 sub_obj['text'] = new_text
                 self.is_dirty = True # Mark as dirty, but don't save yet
-                # self._save_changes_to_json() # Performance: Avoid saving on every single change
+                self._save_changes_to_json() # Performance: Avoid saving on every single change
                 return {'index': item_id, 'old': original_text, 'new': new_text}
         return None
 

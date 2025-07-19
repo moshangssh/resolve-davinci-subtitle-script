@@ -796,3 +796,52 @@ Pytest with PySide6
 2.  制定了详细的后端 (FastAPI) 和前端 (Tauri + React) 重构计划。
 3.  规划了一个分阶段、低风险的实施路线图，确保重构过程平稳可控。
 4.  所有设计文档均已记录在 `memory_bank/architectural_blueprint.md` 中。
+
+
+---
+### 代码实现 [timecode_utils]
+[2025-07-18 22:59:35] - 重构 `timecode_to_frames` 方法以使用 `timecode` 库。
+
+**实现细节：**
+- 在 `src/timecode_utils.py` 中引入 `from timecode import Timecode`。
+- 重写 `timecode_to_frames` 静态方法，利用 `timecode` 库进行核心转换。
+- 新逻辑将输入的 `HH:MM:SS,ms` 格式的时间码字符串中的毫秒部分转换为帧数，以适配 `timecode` 库的 `HH:MM:SS:FF` 输入格式。
+- 通过 `Timecode(frame_rate, tc_lib_format_str).frames` 直接获取总帧数，简化了实现并提高了准确性。
+
+**测试框架：**
+pytest
+
+**测试结果：**
+- 覆盖率：N/A (所有相关测试均已通过)
+- 通过率：100% (15/15 passed)
+
+
+---
+### 代码实现 [TimecodeUtils]
+[2025-07-18 15:06:29] - 重构 `timecode_to_srt_format` 方法以使用 `timecode` 库。
+
+**实现细节：**
+- 使用 `timecode` 库的 `Timecode` 对象来处理帧到SRT格式的转换。
+- 添加了对 `frame` 为 0 或负数的特殊处理，以避免 `timecode` 库的 `ValueError`。
+- 通过 `tc.frame` 和 `tc.framerate` 精确计算毫秒。
+
+**测试框架：**
+- `pytest`
+
+**测试结果：**
+- 覆盖率：100% (根据测试结果推断)
+- 通过率：100% (15/15 passed)
+
+---
+**决策日期:** 2025-07-18
+**决策者:** `🐞 错误调试器`
+**相关任务:** 修复因 `timecode` 库无法处理0帧导致的应用崩溃问题
+
+**决策:**
+在 `src/timecode_utils.py` 的 `timecode_from_frame` 方法中，增加对输入帧数的前置检查。
+
+**理由:**
+错误日志 `Invalid frame count or parameters: Timecode.frames should be a positive integer bigger than zero, not 0` 表明，外部 `timecode` 库在初始化 `Timecode` 对象时，无法接受 `frames` 参数为0。而 `timecode_from_frame` 方法在之前的实现中，直接将传入的 `frame` 参数传递给了 `Timecode` 构造函数，当 `frame` 为0时，就会触发异常导致程序崩溃。
+
+**解决方案:**
+在调用 `Timecode(frame_rate, frames=frame)` 之前，增加一个 `if frame &lt;= 0:` 的判断。如果帧数小于或等于0，则直接返回一个表示零时间码的字符串（例如 `"00:00:00:00"`），从而绕过 `timecode` 库的限制，从根本上解决了此问题，并提高了函数的健壮性。

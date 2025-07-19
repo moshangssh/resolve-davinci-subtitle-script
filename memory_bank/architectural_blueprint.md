@@ -45,6 +45,7 @@ graph TD
     *   **进程管理:** 负责在后台启动和监控 FastAPI 后端服务作为一个子进程。
     *   **原生 API 桥梁:** 为前端提供访问原生操作系统功能的接口 (如文件对话框、通知等)。
     *   **窗口管理:** 创建和管理应用的 WebView 窗口。
+    *   **资源清理:** 监听应用退出事件，并负责发送关闭信号给 FastAPI 子进程，确保临时文件（如 `subvigator_cache` 目录）能被正确清理。
 
 *   **React UI (JavaScript/TypeScript):**
     *   **用户界面:** 替换所有现有的 `PySide6` UI，提供一个现代、响应式的用户体验。
@@ -55,7 +56,7 @@ graph TD
     *   **Web API:** 提供一个 RESTful API (例如 `/api/subtitles`, `/api/tracks`, `/api/resolve/reimport`) 供前端调用。
     *   **业务逻辑封装:** 将现有 `src/services.py`, `src/ui_logic.py` 等模块中的核心业务逻辑迁移到 FastAPI 的路由处理函数或服务类中。
     *   **Resolve 通信:** 保留并继续使用 `resolve_integration.py` 来与 DaVinci Resolve 的脚本 API 进行通信。所有与 Resolve 的直接交互都应被限制在 FastAPI 后端。
-    *   **数据管理:** 继续使用 `subtitle_manager.py` 和 `format_converter.py` 等模块来处理字幕数据的核心逻辑。
+    *   **数据管理:** 继续使用 `subtitle_manager.py` 和 `format_converter.py` 等模块来处理字幕数据的核心逻辑。**特别注意：** 必须完整保留 `subtitle_manager.py` 中实现的**文件缓存机制**和 **`is_dirty` 状态管理**，这是保障应用性能和数据一致性的核心，需要无缝迁移到 FastAPI 的无状态请求/响应模式中。
 
 ## 数据流示例 (查找替换)
 
@@ -112,6 +113,7 @@ fastapi
 uvicorn[standard]
 pydantic
 python-multipart  # 用于文件上传 (导入SRT)
+timecode          # 用于精确的时间码/帧数转换
 # 现有依赖
 cffi
 ```
@@ -127,6 +129,12 @@ cffi
 *   `GET /info`: 获取当前时间线信息（帧率，起始时间码等）。
     *   **响应:** `TimelineInfo`
 
+**Timeline API (`/api/timeline`)**
+
+*   `POST /set-timecode`: 根据字幕ID或时间码字符串，在 DaVinci Resolve 中定位播放头。
+    *   **请求体:** `{"subtitle_id": 123}` 或 `{"timecode": "01:00:10:05"}`
+    *   **响应:** `StatusResponse`
+
 **Subtitles API (`/api/subtitles`)**
 
 *   `GET /{track_id}`: 获取指定轨道的所有字幕。
@@ -134,9 +142,12 @@ cffi
 *   `PUT /{track_id}/{subtitle_id}`: 更新单个字幕的文本内容。
     *   **请求体:** `SubtitleUpdate`
     *   **响应:** `Subtitle` (更新后的字幕)
+*   `POST /replace-one/{subtitle_id}`: 替换单条选定字幕中的文本。
+    *   **请求体:** `ReplaceRequest`
+    *   **响应:** `Subtitle` (更新后的字幕)
 *   `POST /replace-all`: 在当前轨道执行“全部替换”。
     *   **请求体:** `ReplaceRequest`
-    *   **响应:** `List[Subtitle]` (更新后的字幕列表)
+    *   **响应:** `List[Subtitle]` (包含所有被修改字幕的列表)
 *   `POST /import-srt`: 通过上传 SRT 文件内容来导入字幕。
     *   **请求体:** `multipart/form-data` with file content.
     *   **响应:** `List[Subtitle]` (导入的字幕列表)
@@ -144,6 +155,11 @@ cffi
     *   **响应:** `StreamingResponse` (文件流)
 *   `POST /reimport-to-resolve`: 将当前缓存的字幕重新导入到达芬奇。
     *   **响应:** `StatusResponse`
+
+**Status API (`/api/status`)**
+
+*   `GET /is-dirty`: 检查当前是否有未保存的修改。
+    *   **响应:** `{"is_dirty": true}`
 
 ### 4. Pydantic 数据模型 (`backend/app/models/`)
 
@@ -213,6 +229,7 @@ def get_subtitle_manager() -> SubtitleManager:
 *   将 `src` 目录下的 `resolve_integration.py`, `subtitle_manager.py`, `format_converter.py`, `timecode_utils.py` 等核心逻辑文件移动到 `backend/app/services/`。
 *   移除这些文件中所有与 `PySide6` 相关的代码和依赖。
 *   修改 `SubtitleManager` 和 `ResolveIntegration` 的方法，使其返回 Pydantic 模型而不是字典或自定义对象。
+*   **特别注意:** `SubtitleManager` 中的文件缓存机制 (`track_{index}.json`) 和 `is_dirty` 状态管理是旧应用的核心性能保障，在迁移过程中必须完整保留并适配 FastAPI 的架构。
 *   将 `main.py` 和 `services.py` 中的业务逻辑（即事件处理器和应用服务中的方法）重构为 FastAPI 路由函数中的逻辑。
 
 ### 7. 错误处理
@@ -278,7 +295,7 @@ frontend/src/
 │   │   ├── MainLayout.tsx    # 主要布局 (包含侧边栏和主内容区)
 │   │   └── Header.tsx        # 应用头部
 │   ├── subtitles/
-│   │   ├── SubtitleTable.tsx # 字幕表格 (核心组件)
+│   │   ├── SubtitleTable.tsx # 字幕表格 (核心组件)。**关键任务:** 需要在前端重新实现基于 `difflib` 逻辑的富文本差异高亮（Diff View）功能，以在UI上直观展示文本的增、删、改。
 │   │   ├── SubtitleRow.tsx   # 表格中的每一行
 │   │   └── Timecode.tsx      # 可编辑的时间码组件
 │   ├── inspector/
