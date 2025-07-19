@@ -13,7 +13,6 @@ class ResolveIntegration:
         self.project_manager = None
         self.project = None
         self.timeline = None
-        self.tc_utils = None
         if self.resolve:
             print("LOG: INFO: DaVinci Resolve instance found. Initializing integration.")
             self.initialized = True
@@ -51,29 +50,18 @@ class ResolveIntegration:
         """
         Finds and returns the DaVinci Resolve script application instance.
         """
-        try:
-            # First, try the standard external connection method
-            return self._get_resolve_bmd()
-        except Exception:
-            # Fallback for internal/legacy environments
-            try:
-                import fusionscript
-                return fusionscript.scriptapp("Resolve")
-            except ImportError:
-                return None
+        # First, try the standard external connection method
+        resolve_app = self._get_resolve_bmd()
+        if resolve_app:
+            return resolve_app
 
-    def get_timecode_utils(self):
-        if self.tc_utils is None:
-            print("LOG: INFO: TimecodeUtils is being initialized on first use...")
-            try:
-                self.tc_utils = TimecodeUtils(self.resolve)
-            except (TypeError, ValueError) as e:
-                print(f"LOG: ERROR: Error initializing TimecodeUtils due to invalid configuration: {e}")
-                self.tc_utils = None # Keep it None on failure
-            except Exception as e:
-                print(f"LOG: CRITICAL: An unexpected error occurred during TimecodeUtils initialization: {e}")
-                self.tc_utils = None # Keep it None on failure
-        return self.tc_utils
+        # Fallback for internal/legacy environments
+        try:
+            import fusionscript
+            print("LOG: INFO: Falling back to fusionscript.")
+            return fusionscript.scriptapp("Resolve")
+        except ImportError:
+            return None
 
     def get_current_timeline_info(self):
         """
@@ -116,9 +104,6 @@ class ResolveIntegration:
         """
         if not self.timeline:
             return None, "No active timeline."
-        tc_utils = self.get_timecode_utils()
-        if not tc_utils:
-            return None, "TimecodeUtils not available."
 
         try:
             frame_rate = self.timeline.GetSetting('timelineFrameRate')
@@ -140,8 +125,8 @@ class ResolveIntegration:
                     'text': sub_obj.GetName(),
                     'in_frame': in_frame,
                     'out_frame': out_frame,
-                    'in_timecode': tc_utils.timecode_to_srt_format(in_frame, frame_rate),
-                    'out_timecode': tc_utils.timecode_to_srt_format(out_frame, frame_rate),
+                    'in_timecode': TimecodeUtils.timecode_to_srt_format(in_frame, frame_rate),
+                    'out_timecode': TimecodeUtils.timecode_to_srt_format(out_frame, frame_rate),
                     'raw_obj': sub_obj,
                 })
             return subtitle_list, None
@@ -234,9 +219,8 @@ class ResolveIntegration:
         Returns:
             tuple: (bool, None) on success, (None, str) on failure.
         """
-        tc_utils = self.get_timecode_utils()
-        if not self.timeline or not self.project or not tc_utils:
-            return None, "No active timeline, project, or timecode utility."
+        if not self.timeline or not self.project:
+            return None, "No active timeline or project."
 
         try:
             media_pool = self.project.GetMediaPool()
@@ -270,7 +254,7 @@ class ResolveIntegration:
                 
                 first_subtitle_start_tc = subtitle_data[0]['start']
                 first_subtitle_frame = TimecodeUtils.timecode_to_frames(first_subtitle_start_tc, frame_rate)
-                target_timecode = tc_utils.timecode_from_frame(first_subtitle_frame, frame_rate, self.timeline.GetSetting('timelineDropFrame') == '1')
+                target_timecode = TimecodeUtils.timecode_from_frame(first_subtitle_frame, frame_rate, self.timeline.GetSetting('timelineDropFrame') == '1')
                 self.timeline.SetCurrentTimecode(target_timecode)
 
                 if not media_pool.AppendToTimeline(subtitle_pool_item):

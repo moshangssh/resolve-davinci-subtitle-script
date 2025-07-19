@@ -57,7 +57,7 @@
 
 ### 2.1. 核心函数
 
-核心功能被封装在 `_generate_diff_html` 函数中 ([`src/ui_logic.py:6`](src/ui_logic.py:6))。
+核心功能被封装在 `_generate_diff_html` 函数中 ([`src/ui_logic.py`](src/ui_logic.py:6))。
 
 ### 2.2. API 调用
 

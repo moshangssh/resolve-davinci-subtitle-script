@@ -1,72 +1,76 @@
-# `timecode_utils.py` CFFI/FFmpeg API 调用分析报告
+# `timecode_utils.py` API 使用文档
 
 ## 1. 简介
 
-本文档详细分析了 `src/timecode_utils.py` 文件中通过 CFFI 调用 FFmpeg `avutil` 库的技术实现。`TimecodeUtils` 类旨在提供一个健壮、高精度的时间码与帧数互转服务，其核心策略是优先使用高性能的 `avutil` 库，并提供纯 Python 的后备方案。
+本文档详细介绍了 `src/timecode_utils.py` 模块的 API 和实现。`TimecodeUtils` 类是一个纯静态工具集，旨在提供一个健壮、高精度的服务，用于在**时间码字符串**、**总帧数**和 **SRT 时间格式**之间进行相互转换。
 
-## 2. CFFI 交互分析
+该模块的核心依赖是 `timecode` 这个第三方库，它极大地简化了时间码的计算和处理，避免了手动实现复杂的帧率和 Drop-Frame 逻辑。
 
-### 2.1. C 定义 (`ffi.cdef`)
+## 2. 设计理念
 
-在 `_define_c_types` 方法中，通过 `self.ffi.cdef` 定义了与 FFmpeg `avutil` 库交互所需的 C 结构体和函数签名。
+-   **纯静态方法**: `TimecodeUtils` 中的所有方法都是 `@staticmethod`。这意味着你不需要创建类的实例即可调用它们，例如 `TimecodeUtils.timecode_to_frames(...)`。
+-   **单一职责**: 该模块只专注于时间码和帧数之间的转换，不处理任何与 DaVinci Resolve API 或文件 I/O 相关的功能。
+-   **依赖 `timecode` 库**: 所有核心的时间码解析和计算都委托给 `timecode` 库，确保了计算的准确性和对各种帧率（包括 Drop-Frame）的健robust支持。
 
--   **声明的 C 函数签名**:
-    -   `char* av_timecode_make_string(const struct AVTimecode* tc, const char* buf, int32_t framenum);`
-    -   `int32_t av_timecode_init_from_string(struct AVTimecode* tc, struct AVRational rate, const char* str, void* log_ctx);`
-    -   `const char* av_version_info(void);`
+## 3. API 详解
 
--   **声明的 C 结构体和枚举**:
-    -   `struct AVRational`
-    -   `struct AVTimecode`
-    -   `enum AVTimecodeFlag`
+### 3.1. `TimecodeUtils.frame_from_timecode(timecode_str, frame_rate)`
 
-### 2.2. 动态库加载 (`_load_library`)
+-   **功能**: 将标准时间码字符串 (如 `"01:23:45:12"` 或 `"00:01:00;02"`) 转换为总帧数。
+-   **参数**:
+    -   `timecode_str (str)`: 要转换的时间码字符串。Drop-Frame 格式 (`;` 分隔符) 会被自动识别。
+    -   `frame_rate (float)`: 视频的帧率。
+-   **返回值**: `(int)` 对应的总帧数。
+-   **示例**:
+    ```python
+    from src.timecode_utils import TimecodeUtils
+    
+    frames = TimecodeUtils.frame_from_timecode("00:00:01:00", 24)
+    # -> 24
+    ```
 
-该方法负责定位并加载 `avutil` 动态链接库。
+### 3.2. `TimecodeUtils.timecode_from_frame(frame, frame_rate, drop_frame)`
 
--   **平台兼容性**: 根据操作系统动态生成库文件名模式（`avutil*.dll`, `libavutil*.dylib`, `libavutil.so`）。
--   **路径查找**: 使用 DaVinci Resolve 的 `Fusion().MapPath("FusionLibs:")` API 获取 Fusion 库的根目录进行搜索。
--   **版本选择**: 如果找到多个版本的库，会通过正则表达式解析文件名中的版本号，并选择最新版本，增强了健壮性。
--   **加载**: 使用 `self.ffi.dlopen(lib_path)` 将选定的库加载到内存中。
--   **错误处理**: 如果库未找到或加载失败，会抛出 `ImportError` 并提供详细信息。
+-   **功能**: 将总帧数转换为标准时间码字符串。
+-   **参数**:
+    -   `frame (int)`: 要转换的总帧数。
+    -   `frame_rate (float)`: 视频的帧率。
+    -   `drop_frame (bool)`: 是否使用 Drop-Frame 格式。`True` 会生成用 `;` 分隔的时间码。
+-   **返回值**: `(str)` 格式化后的时间码字符串。
+-   **示例**:
+    ```python
+    tc_str = TimecodeUtils.timecode_from_frame(1798, 29.97, drop_frame=True)
+    # -> "00:01:00;02"
+    ```
 
-## 3. `avutil` 函数调用详解
+### 3.3. `TimecodeUtils.timecode_to_srt_format(frame, frame_rate)`
 
-### 3.1. `lib.av_timecode_init_from_string`
+-   **功能**: 将总帧数转换为 SRT 字幕格式的时间戳 (`HH:MM:SS,ms`)。
+-   **参数**:
+    -   `frame (int)`: 要转换的总帧数。
+    -   `frame_rate (float)`: 视频的帧率。
+-   **返回值**: `(str)` SRT 格式的时间字符串。
+-   **实现细节**: 此函数通过将总帧数除以帧率得到总秒数，然后将秒数格式化为 SRT 标准。
+-   **示例**:
+    ```python
+    srt_time = TimecodeUtils.timecode_to_srt_format(24, 24)
+    # -> "00:00:01,000"
+    ```
 
--   **调用位置**: `frame_from_timecode` 方法。
--   **API 方法名**: `av_timecode_init_from_string`
--   **功能描述**: 将字符串格式的时间码（如 "01:23:45:12"）解析为 `AVTimecode` 结构体，并计算出总帧数。
--   **关键参数**:
-    -   `tc`: 指向 `AVTimecode` 结构体的指针，用于存储解析结果。
-    -   `rate`: `AVRational` 结构体，表示帧率的分数形式。
-    -   `str`: UTF-8 编码的时间码字符串。
-    -   `log_ctx`: 日志上下文，此处为 `NULL`。
--   **返回值及其用途**: 返回 `int32_t` 错误码。`0` 表示成功。插件通过检查此值来确认操作是否成功，并从 `tc.start` 字段获取总帧数。
+### 3.4. `TimecodeUtils.timecode_to_frames(srt_time, frame_rate)`
 
-### 3.2. `lib.av_timecode_make_string`
+-   **功能**: 将 SRT 字幕格式的时间戳 (`HH:MM:SS,ms`) 转换为总帧数。
+-   **参数**:
+    -   `srt_time (str)`: SRT 格式的时间字符串。
+    -   `frame_rate (float)`: 视频的帧率。
+-   **返回值**: `(int)` 对应的总帧数。
+-   **实现细节**: 此函数首先将 SRT 时间字符串解析为总秒数，然后乘以帧率得到总帧数。
+-   **示例**:
+    ```python
+    frames = TimecodeUtils.timecode_to_frames("00:00:01,000", 24)
+    # -> 24
+    ```
 
--   **调用位置**: `timecode_from_frame` 方法。
--   **API 方法名**: `av_timecode_make_string`
--   **功能描述**: 将总帧数转换为标准格式的时间码字符串（"HH:MM:SS:FF"）。
--   **关键参数**:
-    -   `tc`: 指向 `AVTimecode` 结构体的指针，包含帧率和标志位信息。
-    -   `buf`: 字符缓冲区，用于存储生成的时间码字符串。
-    -   `framenum`: 要转换的总帧数。
--   **返回值及其用途**: 返回指向 `buf` 中时间码字符串的指针。若出错则返回 `NULL`。插件使用 `self.ffi.string()` 将 C 字符串转换为 Python 字符串。
+## 4. 模块功能总结
 
-## 4. 后备方案 (Fallback) 分析
-
-当 `avutil` 库加载失败时，`TimecodeUtils` 会优雅地降级，使用纯 Python 方法进行转换。
-
--   **触发条件**: `self.libavutil` 为 `None`。
--   **后备实现**:
-    -   `_python_timecode_to_frame`: 替代 `av_timecode_init_from_string`，通过字符串处理和数学运算将时间码转为帧数。包含简化的 Drop-Frame 计算。
-    -   `_python_frame_to_timecode`: 替代 `av_timecode_make_string`，将帧数转为时间码字符串。同样包含简化的 Drop-Frame 计算。
--   **CFFI vs. Python 后备方案对比**:
-    -   **功能**: CFFI 实现精确支持包括 Drop-Frame 在内的所有时间码标准，而 Python 后备方案中的 Drop-Frame 计算是近似实现，精度较低。
-    -   **性能**: CFFI 调用预编译的 C 代码，性能远高于纯 Python 实现，尤其适合批量处理场景。
-
-## 5. 模块功能总结
-
-`TimecodeUtils` 类通过“CFFI 优先，Python 后备”的策略，提供了一个健壮、高精度且高性能的时间码/帧数互转服务。它能够智能地加载 Resolve 内置的 `avutil` 库以实现精确计算，并在库不可用时自动切换到纯 Python 实现，保证了插件的核心功能在任何环境下都可用。这种设计在性能、精度和健壮性之间取得了出色的平衡。
+`TimecodeUtils` 通过封装 `timecode` 库，提供了一个简洁、可靠且易于使用的静态工具类。它将复杂的时间码逻辑抽象出来，使得上层应用（如 `resolve_integration.py` 和 `format_converter.py`）可以方便地进行时间码和帧数之间的转换，而无需关心底层的实现细节。这种设计提高了代码的可维护性和可读性。

@@ -15,15 +15,14 @@
 
 从JSON到SRT的转换过程中，时间码的处理是一个关键步骤，确保了跨平台的时间精度。
 
-### 步骤 1: 时间码字符串 -> 总帧数
+### 步骤 1: SRT 时间格式 -> 总帧数
 
--   **函数**: `timecode_to_frames(tc_str: str, frame_rate: float)`
--   **位置**: `src/resolve_integration.py`
+-   **函数**: `TimecodeUtils.timecode_to_frames(srt_time, frame_rate)`
+-   **位置**: `src/timecode_utils.py`
 -   **输入**: `HH:MM:SS,ms` 格式的时间码字符串（来自 `subtitles.json`）。
 -   **处理**:
-    1.  以逗号 `,` 分割秒和毫秒，再以冒号 `:` 分割时、分、秒。
-    2.  将包括毫秒在内的总时间转换为秒: `总秒数 = (时 * 3600) + (分 * 60) + 秒 + (毫秒 / 1000.0)`
-    3.  根据项目帧率 (`frame_rate`) 计算总帧数并四舍五入: `总帧数 = int(round(总秒数 * 帧率))`
+    1.  将 SRT 时间字符串解析为总秒数。
+    2.  将总秒数乘以帧率得到总帧数。
 -   **输出**: 一个代表绝对时间位置的整数（总帧数）。
 
 ### 步骤 2: 总帧数 -> SRT时间格式
@@ -38,6 +37,6 @@
 
 ### 流程总结
 
-`JSON ("HH:MM:SS,ms")` --> `timecode_to_frames()` --> `总帧数` --> `timecode_to_srt_format()` --> `SRT ("HH:MM:SS,ms")`
+`JSON ("HH:MM:SS,ms")` --> `TimecodeUtils.timecode_to_frames()` --> `总帧数` --> `TimecodeUtils.timecode_to_srt_format()` --> `SRT ("HH:MM:SS,ms")`
 
 这个两步转换过程确保了时间码的精确性，使得生成的SRT文件能够在遵循SRT标准的任何软件中正确显示和同步。

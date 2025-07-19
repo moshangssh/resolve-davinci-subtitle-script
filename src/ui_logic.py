@@ -59,15 +59,15 @@ def _match_text(text, filter_text, filter_type):
     """Helper function to perform the actual text matching logic."""
     if not filter_text:
         return True
-    if filter_type == '包含':
-        return filter_text in text
-    elif filter_type == '精确':
+    if filter_type == 'Contains':
+        return filter_text.lower() in text.lower()
+    elif filter_type == 'Exact':
         return filter_text == text
-    elif filter_type == '开头是':
-        return text.startswith(filter_text)
-    elif filter_type == '结尾是':
-        return text.endswith(filter_text)
-    elif filter_type == '通配符':
+    elif filter_type == 'Starts With':
+        return text.lower().startswith(filter_text.lower())
+    elif filter_type == 'Ends With':
+        return text.lower().endswith(filter_text.lower())
+    elif filter_type == 'Wildcard':
         try:
             regex_pattern = '^' + '.*'.join(re.escape(part) for part in filter_text.split('*')) + '$'
             return re.search(regex_pattern, text) is not None
