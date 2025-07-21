@@ -8,6 +8,7 @@ from src.resolve_integration import ResolveIntegration
 from src.ui import SubvigatorWindow
 from src.subtitle_manager import SubtitleManager
 from src.services import AppService
+from src.timecode_utils import TimecodeUtils
 
 
 class ApplicationController:
@@ -15,7 +16,7 @@ class ApplicationController:
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.resolve_integration = resolve_integration
         self.subtitle_manager = subtitle_manager
-        # self.timecode_utils is now loaded on demand
+        self.timecode_utils = TimecodeUtils()
         self.app_service = AppService(self.resolve_integration, self.subtitle_manager)
         self.window = SubvigatorWindow(self.resolve_integration)
         self.app.aboutToQuit.connect(self.cleanup_on_exit)
@@ -132,7 +133,7 @@ class ApplicationController:
             start_timecode_str = sub_obj['start']
 
             # Get timecode utils on demand
-            tc_utils = self.resolve_integration.get_timecode_utils()
+            tc_utils = self.timecode_utils
             if not tc_utils:
                 self.show_error_message("Timecode utility is not available.")
                 return

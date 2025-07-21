@@ -718,3 +718,14 @@
 - **完成者:** 💻 代码开发者
 - **任务状态:** ✅ 已完成
 - **任务耗时:** 约15分钟
+
+
+---
+- **任务名称:** 修复 `AttributeError`
+- **任务描述:** 在 `src/main.py` 的 `on_item_clicked` 方法中，由于 `ResolveIntegration` 对象缺少 `get_timecode_utils` 方法而引发了 `AttributeError`。通过在 `ApplicationController` 中直接实例化 `TimecodeUtils` 并使用该实例来解决此问题。
+- **任务完成情况:** 成功
+- **任务完成时间:** 2025-07-21 15:04
+- **任务完成者:** NexusCore (via code-developer)
+- **任务完成者角色:** nexuscore, code-developer
+- **任务状态:** 成功
+- **任务耗时:** 约 15 分钟
