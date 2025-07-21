@@ -1,3 +1,7 @@
+> ⚠️ **重要提示：** 本文档描述的是项目 **未来的目标架构**，旨在指导重构工作。它 **不反映** 当前生产系统的实际实现。在进行任何开发或决策时，请务必区分现状与目标。
+
+---
+
 # 架构蓝图：重构为 FastAPI + Tauri + React
 
 这是一个高阶架构图，展示了将现有应用重构为现代化、前后端分离架构的计划。
@@ -8,12 +12,13 @@ graph TD
         subgraph "Tauri 应用"
             direction LR
             subgraph "Rust 核心 (Tauri Main Process)"
-                TauriCore[Tauri Core] -- 管理生命周期 --> FastAPIProcess(FastAPI 子进程)
+                TauriCore[Tauri Core] -- 管理生命周期/配置 --> FastAPIProcess(FastAPI 子进程)
                 TauriCore -- 提供原生API --> Frontend
             end
 
             subgraph "前端 (WebView)"
                 Frontend[React UI] -- HTTP API 请求 --> FastAPIProcess
+                Frontend[React UI] -- WebSocket 双向通信 --> FastAPIProcess
             end
         end
 
@@ -42,10 +47,10 @@ graph TD
 
 *   **Tauri Core (Rust):**
     *   **应用入口:** 启动和管理整个应用的生命周期。
-    *   **进程管理:** 负责在后台启动和监控 FastAPI 后端服务作为一个子进程。
+    *   **进程管理与配置:** 负责在后台启动和监控 FastAPI 后端服务。从配置文件 (`config.toml`) 读取配置，并通过环境变量（如端口、安全Token）传递给子进程。
     *   **原生 API 桥梁:** 为前端提供访问原生操作系统功能的接口 (如文件对话框、通知等)。
     *   **窗口管理:** 创建和管理应用的 WebView 窗口。
-    *   **资源清理:** 监听应用退出事件，并负责发送关闭信号给 FastAPI 子进程，确保临时文件（如 `subvigator_cache` 目录）能被正确清理。
+    *   **生命周期控制:** 监听应用退出事件，并负责发送关闭信号 (`SIGTERM`) 给 FastAPI 子进程，触发其优雅关闭逻辑。
 
 *   **React UI (JavaScript/TypeScript):**
     *   **用户界面:** 替换所有现有的 `PySide6` UI，提供一个现代、响应式的用户体验。
@@ -53,10 +58,10 @@ graph TD
     *   **API 消费:** 通过 `fetch` 或 `axios` 等库，向本地运行的 FastAPI 服务发起 HTTP 请求，以获取数据和触发后端操作。
 
 *   **FastAPI 子进程 (Python):**
-    *   **Web API:** 提供一个 RESTful API (例如 `/api/subtitles`, `/api/tracks`, `/api/resolve/reimport`) 供前端调用。
+    *   **混合通信 API:** 同时提供 RESTful API (用于常规请求-响应) 和 WebSocket (用于从后端到前端的实时状态推送，如 `is_dirty` 状态变更通知)。
     *   **业务逻辑封装:** 将现有 `src/services.py`, `src/ui_logic.py` 等模块中的核心业务逻辑迁移到 FastAPI 的路由处理函数或服务类中。
-    *   **Resolve 通信:** 保留并继续使用 `resolve_integration.py` 来与 DaVinci Resolve 的脚本 API 进行通信。所有与 Resolve 的直接交互都应被限制在 FastAPI 后端。
-    *   **数据管理:** 继续使用 `subtitle_manager.py` 和 `format_converter.py` 等模块来处理字幕数据的核心逻辑。**特别注意：** 必须完整保留 `subtitle_manager.py` 中实现的**文件缓存机制**和 **`is_dirty` 状态管理**，这是保障应用性能和数据一致性的核心，需要无缝迁移到 FastAPI 的无状态请求/响应模式中。
+    *   **Resolve 通信:** 保留并继续使用 `resolve_integration.py` 来与 DaVinci Resolve 的脚本 API 进行通信。
+    *   **数据与生命周期管理:** 继续使用 `subtitle_manager.py` 等模块。通过 `on_event("startup")` 和 `on_event("shutdown")` 钩子来管理应用生命周期，如启动时检查清理旧缓存，关闭时优雅地保存状态。**特别注意：** 必须完整保留 `subtitle_manager.py` 中实现的**文件缓存机制**和 **`is_dirty` 状态管理**，这是保障应用性能和数据一致性的核心。
 
 ## 数据流示例 (查找替换)
 
@@ -73,6 +78,28 @@ graph TD
 ## 后端重构详细规划 (FastAPI)
 
 此部分详细说明了将现有 Python 逻辑迁移到 FastAPI 应用的步骤和规范。
+
+### 新增: 安全性、配置与日志
+
+在详细规划前，我们先定义贯穿整个后端的横切关注点。
+
+*   **安全性 (API Token):**
+    *   Tauri Core 在启动时生成一个高熵的随机字符串作为 `API_TOKEN`。
+    *   此 Token 通过环境变量传递给 FastAPI 子进程。
+    *   FastAPI 创建一个全局依赖，要求所有 API 请求（HTTP 和 WebSocket）的 `Authorization` 头中必须包含此 Token。
+    *   React 应用从 Tauri 环境（或通过特定JS接口）获取此 Token，并注入到所有 API 请求中。
+    *   **目的:** 防止在用户机器上运行的其他恶意网页脚本扫描并调用本地 API。
+
+*   **配置管理 (`backend/app/core/config.py`):**
+    *   使用 Pydantic 的 `BaseSettings` 来从环境变量中读取配置（如 `API_TOKEN`, `LOG_LEVEL`）。
+    *   Tauri 从一个顶层的 `config.toml` 文件读取配置，然后设置相应的环境变量来启动 FastAPI。
+    *   **目的:** 避免硬编码，提高灵活性和可维护性。
+
+*   **日志系统:**
+    *   在 FastAPI 中配置 `logging` 模块，使用结构化日志（如 JSON 格式）。
+    *   日志级别可通过环境变量配置。
+    *   所有关键操作、API 请求和错误都应被记录。
+    *   **目的:** 方便在生产环境中追踪问题和调试。
 
 ### 1. 新项目结构
 
@@ -128,9 +155,6 @@ cffi
     *   **响应:** `List[Track]`
 *   `GET /info`: 获取当前时间线信息（帧率，起始时间码等）。
     *   **响应:** `TimelineInfo`
-
-**Timeline API (`/api/timeline`)**
-
 *   `POST /set-timecode`: 根据字幕ID或时间码字符串，在 DaVinci Resolve 中定位播放头。
     *   **请求体:** `{"subtitle_id": 123}` 或 `{"timecode": "01:00:10:05"}`
     *   **响应:** `StatusResponse`
@@ -158,8 +182,16 @@ cffi
 
 **Status API (`/api/status`)**
 
-*   `GET /is-dirty`: 检查当前是否有未保存的修改。
+*   `GET /is-dirty`: 检查当前是否有未保存的修改。(建议通过 WebSocket 主动推送)
     *   **响应:** `{"is_dirty": true}`
+
+**WebSocket API (`/api/ws`)**
+
+*   `WS /connect`: 建立一个 WebSocket 连接。
+    *   **后端 -> 前端 消息:**
+        *   `{"type": "dirty_status_changed", "payload": {"is_dirty": true}}`
+        *   `{"type": "resolve_connection_status", "payload": {"connected": false, "message": "连接已断开"}}`
+        *   `{"type": "task_progress", "payload": {"task_name": "reimporting", "progress": 0.5}}`
 
 ### 4. Pydantic 数据模型 (`backend/app/models/`)
 
@@ -224,7 +256,30 @@ def get_subtitle_manager() -> SubtitleManager:
 #     return resolve_svc.get_subtitle_tracks()
 ```
 
-### 6. 现有逻辑迁移
+### 6. 应用生命周期管理
+
+在 FastAPI 中明确使用 `startup` 和 `shutdown` 事件。
+
+```python
+# backend/app/main.py
+from .services.subtitle_manager import SubtitleManager
+from .core.dependencies import get_subtitle_manager
+
+@app.on_event("startup")
+async def startup_event():
+    # 应用启动时，可以执行如检查和清理无效缓存等操作
+    subtitle_manager = get_subtitle_manager()
+    subtitle_manager.cleanup_stale_cache()
+    # 初始化与Resolve的连接等
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # 应用关闭前，执行优雅的清理操作
+    subtitle_manager = get_subtitle_manager()
+    subtitle_manager.save_all_dirty_tracks_to_cache()
+```
+
+### 7. 现有逻辑迁移
 
 *   将 `src` 目录下的 `resolve_integration.py`, `subtitle_manager.py`, `format_converter.py`, `timecode_utils.py` 等核心逻辑文件移动到 `backend/app/services/`。
 *   移除这些文件中所有与 `PySide6` 相关的代码和依赖。
